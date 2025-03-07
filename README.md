@@ -29,7 +29,7 @@ A Python desktop application that helps you organize your files automatically by
 1. Clone this repository:
    ```
    git clone https://github.com/saidhamza/FileOrganizer.git
-   cd file-organizer
+   cd FileOrganizer
    ```
 
 2. Install dependencies:
@@ -48,6 +48,34 @@ A Python desktop application that helps you organize your files automatically by
 3. Run the application:
    ```
    python file_organizer.py
+   ```
+
+## Creating a Standalone Executable
+
+To create a standalone executable that can run without Python:
+
+1. Install PyInstaller:
+   ```
+   pip install pyinstaller
+   ```
+
+2. Run the setup script:
+   ```
+   python setup_executable.py
+   ```
+
+3. The executable will be created in the `dist` directory:
+   ```
+   ./dist/FileOrganizer
+   ```
+
+4. Optional: Install the desktop entry (Linux):
+   ```
+   # System-wide installation:
+   sudo cp FileOrganizer.desktop /usr/share/applications/
+   
+   # For current user only:
+   cp FileOrganizer.desktop ~/.local/share/applications/
    ```
 
 ## Usage
