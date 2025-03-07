@@ -55,7 +55,7 @@ class FileOrganizerApp:
         self.root = root
         self.root.title("File Organizer")
         self.root.geometry("650x700")  # Increased height for additional options
-        self.root.minsize(600, 650)    # Increased minimum height
+        self.root.minsize(600, 800)    # Increased minimum height
         self.root.resizable(True, True)
 
         # Config file path
@@ -63,6 +63,17 @@ class FileOrganizerApp:
         
         # Load config
         self.config = self.load_config()
+        
+        # File category definitions - moved here before UI initialization
+        self.category_definitions = {
+            "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg", ".heic"],
+            "Documents": [".doc", ".docx", ".pdf", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx", ".csv"],
+            "Videos": [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".mts", ".m2ts", ".3gp"],
+            "Audio": [".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff"],
+            "Archives": [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"],
+            "Code": [".py", ".js", ".html", ".css", ".java", ".c", ".cpp", ".php", ".rb", ".go", ".rs", ".ts", ".sh", ".json", ".xml"],
+            "Executables": [".exe", ".msi", ".app", ".bat", ".sh", ".apk", ".deb", ".rpm"]
+        }
         
         self.path = tk.StringVar()
         if "last_directory" in self.config and self.is_valid_path(self.config["last_directory"]):
@@ -200,6 +211,12 @@ class FileOrganizerApp:
                                font=("Arial", 8))
         category_info.pack(anchor="w")
 
+        # Add category list display
+        categories_text = ", ".join(list(self.category_definitions.keys()) + ["Other"])
+        categories_display = tk.Label(category_frame, text=categories_text, font=("Arial", 9), 
+                                     wraplength=550, justify="left")
+        categories_display.pack(anchor="w", padx=10, pady=5)
+
         # Buttons frame - update with Category option
         preview_label = tk.Label(buttons_frame, text="Preview Options:", font=("Arial", 10, "bold"))
         preview_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=10)
@@ -239,17 +256,6 @@ class FileOrganizerApp:
             self.log("WARNING: PIL/Pillow not installed. EXIF data extraction will not be available.")
         if self.path.get():
             self.log(f"Loaded last directory: {self.path.get()}")
-
-        # File category definitions
-        self.category_definitions = {
-            "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg", ".heic"],
-            "Documents": [".doc", ".docx", ".pdf", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx", ".csv"],
-            "Videos": [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".mts", ".m2ts", ".3gp"],
-            "Audio": [".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".aiff"],
-            "Archives": [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso"],
-            "Code": [".py", ".js", ".html", ".css", ".java", ".c", ".cpp", ".php", ".rb", ".go", ".rs", ".ts", ".sh", ".json", ".xml"],
-            "Executables": [".exe", ".msi", ".app", ".bat", ".sh", ".apk", ".deb", ".rpm"]
-        }
 
     def is_valid_path(self, path):
         """Check if the path is valid and accessible"""
@@ -516,8 +522,27 @@ Once mounted, you can select the mounted share through the Browse button.
         self.cancel_button = cancel_button
         self.execute_button = execute_button
 
+        # Keep the preview window on top
+        preview_window.attributes('-topmost', True)
+        preview_window.transient(self.root)
+
     def confirm_and_execute(self, window, cancel_button, execute_button):
-        if messagebox.askyesno("Confirm", "Are you sure you want to organize the files?"):
+        """Show confirmation dialog as part of the preview window"""
+        
+        # Create a custom confirmation dialog within the preview window
+        confirm_frame = tk.Frame(window, bd=2, relief="groove", bg="#f0f0f0")
+        confirm_frame.place(relx=0.5, rely=0.5, anchor="center", width=350, height=150)
+        
+        # Add confirmation message
+        tk.Label(confirm_frame, text="Are you sure you want to organize the files?", 
+                 bg="#f0f0f0", font=("Arial", 11)).pack(pady=(20, 15))
+        
+        # Add buttons
+        btn_frame = tk.Frame(confirm_frame, bg="#f0f0f0")
+        btn_frame.pack(pady=10)
+        
+        def on_yes():
+            confirm_frame.destroy()
             # Show progress bar
             self.progress_frame.pack(fill="x", padx=20, pady=10, before=self.cancel_button.master)
             self.progress_bar["maximum"] = len(self.preview)
@@ -531,6 +556,18 @@ Once mounted, you can select the mounted share through the Browse button.
             self.log("Starting file organization...")
             threading.Thread(target=self.execute_organization_with_progress, 
                             args=(window,), daemon=True).start()
+        
+        def on_no():
+            confirm_frame.destroy()
+        
+        tk.Button(btn_frame, text="Yes", command=on_yes, 
+                 bg="#4CAF50", fg="white", width=10).pack(side="left", padx=10)
+        tk.Button(btn_frame, text="No", command=on_no, 
+                 bg="#f44336", fg="white", width=10).pack(side="left", padx=10)
+        
+        # Ensure the preview window stays on top during confirmation
+        window.lift()
+        window.focus_force()
 
     def execute_organization_with_progress(self, window):
         """Execute organization with progress updates"""
