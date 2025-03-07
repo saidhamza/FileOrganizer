@@ -355,99 +355,381 @@ class FileOrganizerApp:
             if os.path.isdir(current_path):
                 initial_dir = current_path
         
-        # First try the standard dialog
-        folder_selected = filedialog.askdirectory(initialdir=initial_dir)
+        # Add a dropdown or button group for common sources
+        source_dialog = Toplevel(self.root)
+        source_dialog.title("Select Folder Source")
+        source_dialog.geometry("400x250")
+        source_dialog.grab_set()
+        source_dialog.transient(self.root)
+        source_dialog.resizable(False, False)
         
-        # If user cancelled or if we want to enter a network path manually
-        if not folder_selected:
-            # Check if user wants to enter a network path
-            if messagebox.askyesno("Network Path", 
-                                  "Do you want to enter a network path manually?\n\n"
-                                  "For example: //server/share or \\\\server\\share"):
-                folder_selected = self.manual_network_path_input()
+        # Center the dialog
+        source_dialog.update_idletasks()
+        x = (source_dialog.winfo_screenwidth() - source_dialog.winfo_width()) // 2
+        y = (source_dialog.winfo_screenheight() - source_dialog.winfo_height()) // 2
+        source_dialog.geometry(f"+{x}+{y}")
         
-        if folder_selected:
-            self.path.set(folder_selected)
-            self.last_directory = folder_selected
-            self.add_to_recent_folders(folder_selected)
+        # Header
+        tk.Label(source_dialog, text="Choose a folder source:", font=("Arial", 12, "bold")).pack(pady=(15, 20))
+        
+        result = [None]  # To store the result
+        
+        def select_local():
+            source_dialog.destroy()
+            folder_selected = filedialog.askdirectory(initialdir=initial_dir)
+            if folder_selected:
+                result[0] = folder_selected
+                self.on_folder_selected(folder_selected)
+        
+        def select_network():
+            source_dialog.destroy()
+            network_path = self.manual_network_path_input()
+            if network_path:
+                result[0] = network_path
+                self.on_folder_selected(network_path)
+        
+        def select_recent():
+            source_dialog.destroy()
+            self.select_from_recent_list()
+        
+        # Create buttons with icons (text only if no icons available)
+        btn_frame = tk.Frame(source_dialog)
+        btn_frame.pack(fill="both", expand=True, padx=20)
+        
+        # Local folder button
+        local_btn = tk.Button(btn_frame, text="Local Folder", width=25, height=2,
+                            command=select_local, bg="#e0e0ff")
+        local_btn.pack(pady=10)
+        ToolTip(local_btn, "Browse your local file system for a folder to organize")
+        
+        # Network share button
+        network_btn = tk.Button(btn_frame, text="Network Share (SMB)", width=25, height=2,
+                              command=select_network, bg="#e0ffef")
+        network_btn.pack(pady=10)
+        ToolTip(network_btn, "Enter a network path like //server/share or \\\\server\\share")
+        
+        # Recent folders button
+        if self.recent_folders:
+            recent_btn = tk.Button(btn_frame, text="Recent Folders", width=25, height=2,
+                                command=select_recent, bg="#fff0e0")
+            recent_btn.pack(pady=10)
+            ToolTip(recent_btn, "Select from your recently used folders")
+        
+        # Cancel button
+        cancel_btn = tk.Button(source_dialog, text="Cancel", command=source_dialog.destroy, width=10)
+        cancel_btn.pack(pady=15)
+        
+        # Wait for dialog to close
+        self.root.wait_window(source_dialog)
+    
+    def on_folder_selected(self, folder):
+        """Handle a selected folder from any source"""
+        if folder and self.is_valid_path(folder):
+            self.path.set(folder)
+            self.last_directory = folder
+            self.add_to_recent_folders(folder)
             self.save_config()
-            self.status_label.config(text=f"Selected folder: {folder_selected}")
-            self.log(f"Selected folder: {folder_selected}")
+            self.status_label.config(text=f"Selected folder: {folder}")
+            self.log(f"Selected folder: {folder}")
+    
+    def select_from_recent_list(self):
+        """Show dialog to select from recent folders"""
+        if not self.recent_folders:
+            messagebox.showinfo("No Recent Folders", "You don't have any recent folders to select from.")
+            return None
+        
+        recent_dialog = Toplevel(self.root)
+        recent_dialog.title("Select Recent Folder")
+        recent_dialog.geometry("500x300")
+        recent_dialog.transient(self.root)
+        recent_dialog.grab_set()
+        
+        # Center the dialog
+        recent_dialog.update_idletasks()
+        x = (recent_dialog.winfo_screenwidth() - recent_dialog.winfo_width()) // 2
+        y = (recent_dialog.winfo_screenheight() - recent_dialog.winfo_height()) // 2
+        recent_dialog.geometry(f"+{x}+{y}")
+        
+        tk.Label(recent_dialog, text="Select a recent folder:", font=("Arial", 11)).pack(pady=10)
+        
+        # Create listbox
+        listbox_frame = tk.Frame(recent_dialog)
+        listbox_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        scrollbar = tk.Scrollbar(listbox_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        listbox = tk.Listbox(listbox_frame, font=("Arial", 10), width=60, height=10)
+        listbox.pack(side="left", fill="both", expand=True)
+        
+        # Configure scrollbar
+        scrollbar.config(command=listbox.yview)
+        listbox.config(yscrollcommand=scrollbar.set)
+        
+        # Add items
+        for folder in self.recent_folders:
+            listbox.insert(tk.END, folder)
+        
+        # Select first item
+        if listbox.size() > 0:
+            listbox.selection_set(0)
+        
+        result = [None]  # To store result
+        
+        def on_select():
+            selection = listbox.curselection()
+            if selection:
+                selected_folder = self.recent_folders[selection[0]]
+                if self.is_valid_path(selected_folder):
+                    result[0] = selected_folder
+                    self.on_folder_selected(selected_folder)
+                else:
+                    messagebox.showwarning("Path Not Accessible", 
+                        f"The selected path '{selected_folder}' is not accessible.\n\n"
+                        "If it's a network path, make sure the share is mounted or accessible.")
+            recent_dialog.destroy()
+        
+        def on_double_click(event):
+            on_select()
+        
+        # Bind double click
+        listbox.bind("<Double-1>", on_double_click)
+        
+        button_frame = tk.Frame(recent_dialog)
+        button_frame.pack(fill="x", pady=10)
+        
+        tk.Button(button_frame, text="Cancel", command=recent_dialog.destroy, width=10).pack(side="right", padx=20)
+        tk.Button(button_frame, text="Select", command=on_select, width=10).pack(side="right")
+        
+        # Wait for dialog to close
+        self.root.wait_window(recent_dialog)
+        
+        return result[0]
     
     def manual_network_path_input(self):
-        """Dialog for manual network path input"""
+        """Enhanced dialog for manual network path input"""
         dialog = Toplevel(self.root)
-        dialog.title("Enter Network Path")
-        dialog.geometry("400x150")
+        dialog.title("Enter Network Share Path")
+        dialog.geometry("500x250")
         dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - dialog.winfo_width()) // 2
+        y = (dialog.winfo_screenheight() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
         
         result = [None]  # Use list to store result from inner function
         
-        tk.Label(dialog, text="Enter Network Path:", font=("Arial", 10)).pack(pady=10)
+        # Header
+        header_frame = tk.Frame(dialog)
+        header_frame.pack(fill="x", padx=20, pady=(10, 5))
+        
+        tk.Label(header_frame, text="Enter Network Share Path:", 
+                font=("Arial", 11, "bold")).pack(anchor="w")
+        
+        # Info text
+        info_text = "Enter the path to a shared network folder (SMB/CIFS).\n" + \
+                  "Example formats: //server/share or \\\\server\\share"
+        tk.Label(dialog, text=info_text, justify="left").pack(padx=20, anchor="w")
+        
+        # Entry field
         path_var = tk.StringVar()
-        path_entry = tk.Entry(dialog, textvariable=path_var, width=50)
-        path_entry.pack(pady=5)
+        entry_frame = tk.Frame(dialog)
+        entry_frame.pack(fill="x", padx=20, pady=10)
+        
+        path_entry = tk.Entry(entry_frame, textvariable=path_var, width=50)
+        path_entry.pack(side="left", fill="x", expand=True)
         path_entry.focus_set()
         
-        # Example label
-        tk.Label(dialog, text="Example: //server/share or \\\\server\\share", 
-                font=("Arial", 8)).pack()
+        # Path format help with examples
+        examples_frame = tk.Frame(dialog)
+        examples_frame.pack(fill="x", padx=20, pady=5)
+        
+        example_text = "• For Windows: \\\\server\\share or //server/share\n" + \
+                     "• For Linux/macOS: //server/share\n" + \
+                     "• With credentials: //username:password@server/share"
+        tk.Label(examples_frame, text=example_text, justify="left", 
+               font=("Arial", 9)).pack(anchor="w")
+        
+        # Buttons
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(fill="x", padx=20, pady=(15, 10))
         
         def on_ok():
-            path = path_var.get().strip().replace("\\", "/")
+            path = path_var.get().strip()
+            # Normalize path (replace backslashes with forward slashes)
+            if path.startswith("\\\\"):
+                path = "/" + path.replace("\\", "/")
             if path:
                 result[0] = path
             dialog.destroy()
         
-        def on_cancel():
-            dialog.destroy()
+        def show_advanced_help():
+            self.show_network_help()
         
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(fill="x", pady=10)
+        help_button = tk.Button(button_frame, text="Advanced Help", 
+                             command=show_advanced_help)
+        help_button.pack(side="left", padx=5)
         
-        tk.Button(button_frame, text="Cancel", command=on_cancel).pack(side="right", padx=10)
-        tk.Button(button_frame, text="OK", command=on_ok).pack(side="right", padx=10)
+        tk.Button(button_frame, text="Cancel", 
+                command=dialog.destroy, width=8).pack(side="right", padx=5)
+        tk.Button(button_frame, text="Connect", 
+                command=on_ok, width=8, bg="#4CAF50", fg="white").pack(side="right", padx=5)
         
         # Wait for dialog to close
         dialog.wait_window()
+        
+        # Return the path if entered
         return result[0]
-    
+
     def show_network_help(self):
-        """Show help for accessing network folders"""
+        """Enhanced help for accessing network folders"""
         help_dialog = Toplevel(self.root)
-        help_dialog.title("Network Path Help")
-        help_dialog.geometry("500x300")
+        help_dialog.title("Network Share Help")
+        help_dialog.geometry("600x450")
         
-        text = Text(help_dialog, wrap=tk.WORD, padx=10, pady=10)
-        text.pack(fill="both", expand=True)
+        # Make it transient to keep it on top of the main window
+        help_dialog.transient(self.root)
         
-        help_text = """Accessing Network Folders:
-
-1. You can directly type a network path into the folder field, such as:
-   //server/share or \\\\server\\share
-
-2. When using the Browse button, you can select "Yes" to enter a network
-   path manually if the standard folder dialog doesn't show network paths.
-
-3. For authenticated shares (requiring username/password):
-   
-   • On Windows: First map the network drive in File Explorer
-     (Right-click This PC → Map network drive...)
-   
-   • On Linux: Use the file browser to mount the share first, or use
-     the 'mount' command in terminal:
-     
-     sudo mount -t cifs //server/share /mnt/mountpoint -o username=user,password=pass
-
-   • On macOS: Use Finder → Go → Connect to Server... (⌘K)
-
-Once mounted, you can select the mounted share through the Browse button.
-"""
+        # Center the dialog
+        help_dialog.update_idletasks()
+        x = (help_dialog.winfo_screenwidth() - help_dialog.winfo_width()) // 2
+        y = (help_dialog.winfo_screenheight() - help_dialog.winfo_height()) // 2
+        help_dialog.geometry(f"+{x}+{y}")
         
-        text.insert(tk.END, help_text)
-        text.config(state="disabled")
+        # Create a notebook with tabs
+        notebook = ttk.Notebook(help_dialog)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
         
-        tk.Button(help_dialog, text="Close", command=help_dialog.destroy).pack(pady=10)
+        # General tab
+        general_frame = ttk.Frame(notebook)
+        notebook.add(general_frame, text="General")
+        
+        general_text = Text(general_frame, wrap=tk.WORD, padx=10, pady=10)
+        general_text.pack(fill="both", expand=True)
+        
+        general_text.insert(tk.END, """Network Share Access - General Information
+
+To access shared network folders (SMB/CIFS shares):
+
+1. Direct Entry: You can type a network path directly in the format:
+   • //server/share or \\\\server\\share
+
+2. Path with credentials (if needed):
+   • //username:password@server/share
+
+3. Common network path issues:
+   • Make sure the server is online and accessible from your network
+   • Verify you have permission to access the shared folder
+   • Some networks require you to be on the same LAN or VPN
+   • Firewalls may block SMB/CIFS traffic (ports 139 and 445)
+
+This application will attempt to access the path you provide. If connection 
+fails, you may need to first mount/map the drive using your operating system's 
+tools as described in the platform-specific tabs.
+""")
+        general_text.config(state="disabled")
+        
+        # Windows tab
+        windows_frame = ttk.Frame(notebook)
+        notebook.add(windows_frame, text="Windows")
+        
+        windows_text = Text(windows_frame, wrap=tk.WORD, padx=10, pady=10)
+        windows_text.pack(fill="both", expand=True)
+        
+        windows_text.insert(tk.END, """Windows - Accessing Network Shares
+
+Method 1: Map a Network Drive
+1. Open File Explorer
+2. Right-click on "This PC" and select "Map network drive..."
+3. Choose a drive letter and enter the network path (\\\\server\\share)
+4. Check "Connect using different credentials" if needed
+5. Click "Finish" and enter credentials if prompted
+
+Method 2: Direct Access
+1. In File Explorer address bar, type \\\\server\\share
+2. Press Enter
+3. Enter credentials if prompted
+
+Troubleshooting:
+• Make sure Network Discovery is enabled
+• Check Windows Defender Firewall settings
+• Verify the remote computer is using SMB v1, v2, or v3 compatible with your Windows version
+• Try accessing with full credentials: \\\\username:password@server\\share
+""")
+        windows_text.config(state="disabled")
+        
+        # Linux tab
+        linux_frame = ttk.Frame(notebook)
+        notebook.add(linux_frame, text="Linux")
+        
+        linux_text = Text(linux_frame, wrap=tk.WORD, padx=10, pady=10)
+        linux_text.pack(fill="both", expand=True)
+        
+        linux_text.insert(tk.END, """Linux - Accessing Network Shares
+
+Method 1: Mount using terminal
+1. Create a mount point:
+   sudo mkdir -p /mnt/networkshare
+
+2. Mount the share:
+   sudo mount -t cifs //server/share /mnt/networkshare -o username=user,password=pass
+
+3. For permanent mounting, add to /etc/fstab:
+   //server/share /mnt/networkshare cifs username=user,password=pass,uid=1000,gid=1000 0 0
+
+Method 2: Using file manager
+Most Linux file managers support entering network paths directly:
+1. Open file manager (Nautilus, Dolphin, etc.)
+2. Press Ctrl+L to edit location
+3. Enter: smb://server/share
+4. Enter credentials when prompted
+
+Prerequisites:
+• cifs-utils package must be installed:
+   Ubuntu/Debian: sudo apt install cifs-utils
+   Fedora/RHEL: sudo dnf install cifs-utils
+""")
+        linux_text.config(state="disabled")
+        
+        # macOS tab
+        mac_frame = ttk.Frame(notebook)
+        notebook.add(mac_frame, text="macOS")
+        
+        mac_text = Text(mac_frame, wrap=tk.WORD, padx=10, pady=10)
+        mac_text.pack(fill="both", expand=True)
+        
+        mac_text.insert(tk.END, """macOS - Accessing Network Shares
+
+Method 1: Using Finder
+1. In Finder, click "Go" menu and select "Connect to Server..." (or press ⌘K)
+2. Enter the server address: smb://server/share
+3. Click "Connect"
+4. Enter credentials when prompted
+
+Method 2: Using Terminal
+1. Create a mount point:
+   mkdir -p ~/NetworkShares/myshare
+
+2. Mount the share:
+   mount -t smbfs //username:password@server/share ~/NetworkShares/myshare
+
+Method 3: Auto-mount on login
+1. Open System Preferences
+2. Go to "Users & Groups"
+3. Select your account and click "Login Items"
+4. Add the network share to login items
+
+Troubleshooting:
+• Make sure SMB is enabled in Sharing settings
+• Try different SMB versions: smb://server/share?SMB_VER=1.0
+• Check your macOS Firewall settings
+""")
+        mac_text.config(state="disabled")
+        
+        # Add close button
+        tk.Button(help_dialog, text="Close", command=help_dialog.destroy, width=10).pack(pady=10)
 
     def get_files(self, folder):
         files = []
