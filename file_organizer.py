@@ -54,7 +54,7 @@ class FileOrganizerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("File Organizer")
-        self.root.geometry("650x700")  # Increased height for additional options
+        self.root.geometry("730x700")  # Increased height for additional options
         self.root.minsize(600, 800)    # Increased minimum height
         self.root.resizable(True, True)
 
@@ -108,8 +108,9 @@ class FileOrganizerApp:
         top_frame = tk.Frame(root)
         top_frame.pack(fill="x", padx=20, pady=10)
 
-        recent_frame = tk.Frame(root)
-        recent_frame.pack(fill="x", padx=20, pady=5)
+        # Remove recent_frame - we now have a dedicated dialog
+        # recent_frame = tk.Frame(root)
+        # recent_frame.pack(fill="x", padx=20, pady=5)
 
         options_frame = tk.Frame(root)
         options_frame.pack(fill="x", padx=20, pady=10)
@@ -129,14 +130,14 @@ class FileOrganizerApp:
         tk.Entry(top_frame, textvariable=self.path, width=50).pack(side="left", padx=5)
         tk.Button(top_frame, text="Browse", command=self.browse_folder).pack(side="left", padx=5)
         
-        # Recent folders dropdown
-        if self.recent_folders:
-            tk.Label(recent_frame, text="Recent Folders:").pack(side="left", padx=5)
-            self.recent_var = tk.StringVar()  # Make this an instance variable
-            recent_dropdown = ttk.Combobox(recent_frame, textvariable=self.recent_var, width=50)
-            recent_dropdown['values'] = self.recent_folders
-            recent_dropdown.pack(side="left", padx=5)
-            recent_dropdown.bind("<<ComboboxSelected>>", self.on_recent_folder_selected)
+        # Remove the recent folders dropdown - it's now in a dedicated dialog
+        # if self.recent_folders:
+        #     tk.Label(recent_frame, text="Recent Folders:").pack(side="left", padx=5)
+        #     self.recent_var = tk.StringVar()  # Make this an instance variable
+        #     recent_dropdown = ttk.Combobox(recent_frame, textvariable=self.recent_var, width=50)
+        #     recent_dropdown['values'] = self.recent_folders
+        #     recent_dropdown.pack(side="left", padx=5)
+        #     recent_dropdown.bind("<<ComboboxSelected>>", self.on_recent_folder_selected)
 
         # Options frame
         tk.Checkbutton(options_frame, text="Include Subfolders", variable=self.include_subfolders).pack(side="left", padx=5)
@@ -148,6 +149,13 @@ class FileOrganizerApp:
         # Replace the network folder button with simple instructions
         self.network_button = tk.Button(options_frame, text="Network Path Help", command=self.show_network_help)
         self.network_button.pack(side="left", padx=20)
+
+        # If we have recent folders, add a button to access them directly
+        if self.recent_folders:
+            recent_btn = tk.Button(top_frame, text="Recent", 
+                                   command=self.select_from_recent_list, width=6)
+            recent_btn.pack(side="left", padx=5)
+            ToolTip(recent_btn, "Select from recently used folders")
 
         # Date source options frame
         date_label = tk.Label(date_options_frame, text="Date Source:", font=("Arial", 10))
