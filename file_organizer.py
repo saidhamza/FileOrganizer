@@ -16,7 +16,7 @@ import subprocess
 import threading
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageTk
     from PIL.ExifTags import TAGS
     HAS_PIL = True
 except ImportError:
@@ -242,6 +242,16 @@ class FileOrganizerApp:
                   width=15, bg="#e0e0ff").grid(row=1, column=2, padx=10, pady=5)
         tk.Button(buttons_frame, text="Preview by Location", command=self.preview_by_location,
                   width=15, bg="#e0ffef").grid(row=1, column=3, padx=10, pady=5)
+        
+        # Add utility functions row with Find Duplicates button
+        utils_label = tk.Label(buttons_frame, text="Utilities:", font=("Arial", 10, "bold"))
+        utils_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(15, 10))
+        
+        # Find Duplicates button
+        duplicate_btn = tk.Button(buttons_frame, text="Find Duplicates", command=self.find_duplicates,
+                                width=15, bg="#ffe0e0")
+        duplicate_btn.grid(row=3, column=0, padx=10, pady=5)
+        ToolTip(duplicate_btn, "Find and manage duplicate files based on content")
                   
         # Log frame
         log_frame = tk.Frame(root)
@@ -444,8 +454,67 @@ class FileOrganizerApp:
             self.last_directory = folder
             self.add_to_recent_folders(folder)
             self.save_config()
-            self.status_label.config(text=f"Selected folder: {folder}")
+            
+            # Count files and update status bar
+            threading.Thread(
+                target=self._count_files_in_folder,
+                args=(folder,),
+                daemon=True
+            ).start()
+            
             self.log(f"Selected folder: {folder}")
+    
+    def _count_files_in_folder(self, folder):
+        """Count files in folder and update status bar"""
+        try:
+            # Show "Counting..." in status bar
+            self.root.after(0, lambda: self.status_label.config(text=f"Selected folder: {folder} (Counting files...)"))
+            
+            # Count files with or without subfolders
+            total_files = 0
+            total_size = 0
+            
+            if self.include_subfolders.get():
+                for root, _, files in os.walk(folder):
+                    total_files += len(files)
+                    for file in files:
+                        try:
+                            file_path = os.path.join(root, file)
+                            total_size += os.path.getsize(file_path)
+                        except:
+                            pass
+            else:
+                for item in os.listdir(folder):
+                    item_path = os.path.join(folder, item)
+                    if os.path.isfile(item_path):
+                        total_files += 1
+                        try:
+                            total_size += os.path.getsize(item_path)
+                        except:
+                            pass
+            
+            # Format size in human-readable format
+            size_str = self.format_size(total_size)
+            
+            # Update status bar with count
+            self.root.after(0, lambda: self.status_label.config(
+                text=f"Selected folder: {folder} ({total_files} files, {size_str})"
+            ))
+            
+        except Exception as e:
+            self.log(f"Error counting files: {e}")
+            self.root.after(0, lambda: self.status_label.config(text=f"Selected folder: {folder}"))
+    
+    def format_size(self, size_bytes):
+        """Format size in bytes to human readable format"""
+        if size_bytes < 1024:
+            return f"{size_bytes} bytes"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes/1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes/(1024*1024):.1f} MB"
+        else:
+            return f"{size_bytes/(1024*1024*1024):.2f} GB"
     
     def select_from_recent_list(self):
         """Show dialog to select from recent folders"""
@@ -536,16 +605,6 @@ class FileOrganizerApp:
         
         result = [None]  # Use list to store result from inner function
         
-        # Header
-        header_frame = tk.Frame(dialog)
-        header_frame.pack(fill="x", padx=20, pady=(10, 5))
-        
-        tk.Label(header_frame, text="Enter Network Share Path:", 
-                font=("Arial", 11, "bold")).pack(anchor="w")
-        
-        # Info text
-        info_text = "Enter the path to a shared network folder (SMB/CIFS).\n" + \
-                  "Example formats: //server/share or \\\\server\\share"
         tk.Label(dialog, text=info_text, justify="left").pack(padx=20, anchor="w")
         
         # Entry field
@@ -748,6 +807,16 @@ Troubleshooting:
 
     def get_files(self, folder):
         files = []
+        for root, _, filenames in os.walk(folder):
+            for filename in filenames:
+                files.append(os.path.join(root, filename))
+            if not self.include_subfolders.get():
+                break
+        return files
+
+    def show_preview(self, preview):
+        self.preview = preview
+        preview_window = Toplevel(self.root)
         for root, _, filenames in os.walk(folder):
             for filename in filenames:
                 files.append(os.path.join(root, filename))
@@ -965,24 +1034,681 @@ Troubleshooting:
             return
 
         self.log(f"Generating preview for organizing files by type in {folder}")
-        preview = []
-        for file_path in self.get_files(folder):
-            if os.path.isfile(file_path):
-                ext = os.path.splitext(file_path)[1][1:] or "NO_EXTENSION"
-                ext_folder = os.path.join(folder, ext.upper())
-                dest_path = os.path.join(ext_folder, os.path.basename(file_path))
-                preview.append((file_path, dest_path))
-
-        if not preview:
-            message = "No files found to organize!"
-            messagebox.showinfo("No Files", message)
+        
+        # Create and show progress window
+        self.show_processing_dialog("Scanning Files", "Generating preview...")
+        
+        # Run the actual work in a thread to keep UI responsive
+        threading.Thread(
+            target=self._generate_preview_by_type,
+            args=(folder,),
+            daemon=True
+        ).start()
+    
+    def _generate_preview_by_type(self, folder):
+        """Generate preview by file type in a background thread"""
+        try:
+            preview = []
+            # Get files with progress updates
+            files = self.get_files_with_progress(folder)
+            
+            total_files = len(files)
+            self.update_processing_dialog(f"Processing {total_files} files...", 0, total_files)
+            
+            # Process files
+            for i, file_path in enumerate(files):
+                if os.path.isfile(file_path):
+                    ext = os.path.splitext(file_path)[1][1:] or "NO_EXTENSION"
+                    ext_folder = os.path.join(folder, ext.upper())
+                    dest_path = os.path.join(ext_folder, os.path.basename(file_path))
+                    preview.append((file_path, dest_path))
+                
+                # Update progress every 10 files
+                if i % 10 == 0:
+                    self.update_processing_dialog(f"Processing files... ({i}/{total_files})", i, total_files)
+            
+            # Final progress update
+            self.update_processing_dialog("Finalizing preview...", total_files, total_files)
+            
+            if not preview:
+                self.close_processing_dialog()
+                message = "No files found to organize!"
+                self.root.after(0, lambda: messagebox.showinfo("No Files", message))
+                self.log(message)
+                return
+            
+            # Show preview window on main thread
+            self.root.after(0, lambda p=list(preview): self.show_preview(p))
+            message = f"Preview ready: {len(preview)} files to organize by type"
+            self.root.after(0, lambda: self.status_label.config(text=message))
             self.log(message)
+            
+            # Close progress dialog
+            self.close_processing_dialog()
+            
+        except Exception as e:
+            self.log(f"Error generating preview: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.close_processing_dialog()
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                        f"An error occurred while generating preview:\n\n{str(e)}"))
+
+    def get_files_with_progress(self, folder):
+        """Get files with progress updates for large directories"""
+        files = []
+        self.cancel_scan = False
+        
+        # First, count files to set up progress
+        if self.include_subfolders.get():
+            # First pass to count files
+            self.update_processing_dialog("Counting files...", 0, 100)
+            
+            total_files = 0
+            for _, _, filenames in os.walk(folder):
+                total_files += len(filenames)
+                
+                # Check for cancel
+                if self.cancel_scan:
+                    raise InterruptedError("File scanning was cancelled")
+                    
+                # Give the UI a chance to update
+                if total_files % 1000 == 0:
+                    self.update_processing_dialog(f"Counting files... {total_files} found", 0, 100)
+                    time.sleep(0.01)
+        else:
+            # Single directory count is fast
+            filenames = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+            total_files = len(filenames)
+        
+        # Update with accurate count
+        self.update_processing_dialog(f"Found {total_files} files. Preparing file list...", 0, total_files)
+        
+        # Get the actual files with progress updates
+        file_count = 0
+        if self.include_subfolders.get():
+            for root, _, filenames in os.walk(folder):
+                for filename in filenames:
+                    files.append(os.path.join(root, filename))
+                    file_count += 1
+                    
+                    # Update progress periodically
+                    if file_count % 100 == 0:
+                        self.update_processing_dialog(f"Preparing file list... {file_count}/{total_files}", 
+                                                   file_count, total_files)
+                        
+                    # Check for cancel
+                    if self.cancel_scan:
+                        raise InterruptedError("File scanning was cancelled")
+        else:
+            # Single directory
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                if os.path.isfile(file_path):
+                    files.append(file_path)
+                    file_count += 1
+                    
+                    # Update progress periodically
+                    if file_count % 100 == 0:
+                        self.update_processing_dialog(f"Preparing file list... {file_count}/{total_files}", 
+                                                   file_count, total_files)
+                    
+                    # Check for cancel
+                    if self.cancel_scan:
+                        raise InterruptedError("File scanning was cancelled")
+        
+        return files
+
+    def show_processing_dialog(self, title, message):
+        """Show a processing dialog with progress bar"""
+        # Create a global reference to the dialog
+        self.processing_dialog = Toplevel(self.root)
+        self.processing_dialog.title(title)
+        self.processing_dialog.geometry("400x120")
+        self.processing_dialog.resizable(False, False)
+        self.processing_dialog.transient(self.root)
+        self.processing_dialog.grab_set()
+        
+        # Center the dialog
+        self.processing_dialog.update_idletasks()
+        x = (self.processing_dialog.winfo_screenwidth() - self.processing_dialog.winfo_width()) // 2
+        y = (self.processing_dialog.winfo_screenheight() - self.processing_dialog.winfo_height()) // 2
+        self.processing_dialog.geometry(f"+{x}+{y}")
+        
+        # Status message
+        self.progress_message = tk.StringVar(value=message)
+        tk.Label(self.processing_dialog, textvariable=self.progress_message).pack(pady=(15, 10))
+        
+        # Progress bar
+        self.progress_bar_dialog = ttk.Progressbar(self.processing_dialog, orient="horizontal", length=350, mode="determinate")
+        self.progress_bar_dialog.pack(pady=5, padx=20)
+        
+        # Cancel button
+        self.cancel_scan = False
+        tk.Button(
+            self.processing_dialog, 
+            text="Cancel", 
+            command=self._cancel_processing_dialog
+        ).pack(pady=10)
+    
+    def update_processing_dialog(self, message, value, maximum):
+        """Update the processing dialog from the main thread"""
+        if not hasattr(self, 'processing_dialog') or not self.processing_dialog.winfo_exists():
             return
             
-        self.show_preview(preview)
-        message = f"Preview ready: {len(preview)} files to organize by type"
-        self.status_label.config(text=message)
-        self.log(message)
+        self.root.after(0, lambda: self.progress_message.set(message))
+        self.root.after(0, lambda: self.progress_bar_dialog.configure(maximum=maximum, value=value))
+    
+    def close_processing_dialog(self):
+        """Close the processing dialog"""
+        if hasattr(self, 'processing_dialog') and self.processing_dialog.winfo_exists():
+            self.root.after(0, self.processing_dialog.destroy)
+    
+    def _cancel_processing_dialog(self):
+        """Handle cancel button press in processing dialog"""
+        self.cancel_scan = True
+        if hasattr(self, 'processing_dialog') and self.processing_dialog.winfo_exists():
+            self.processing_dialog.destroy()
+
+    def preview_by_category(self):
+        """Preview organizing files by category (Images, Documents, Videos, etc.)"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        self.log(f"Generating preview for organizing files by category in {folder}")
+        
+        # Create and show progress window
+        self.show_processing_dialog("Scanning Files", "Generating preview...")
+        
+        # Run the actual work in a thread to keep UI responsive
+        threading.Thread(
+            target=self._generate_preview_by_category,
+            args=(folder,),
+            daemon=True
+        ).start()
+    
+    def _generate_preview_by_category(self, folder):
+        """Generate preview by category in a background thread"""
+        try:
+            preview = []
+            # Count files in each category for logging
+            category_counts = {}
+            
+            # Get files with progress updates
+            files = self.get_files_with_progress(folder)
+            
+            total_files = len(files)
+            self.update_processing_dialog(f"Processing {total_files} files...", 0, total_files)
+            
+            # Process files
+            for i, file_path in enumerate(files):
+                if os.path.isfile(file_path):
+                    category = self.get_file_category(file_path)
+                    # Keep track of how many files in each category
+                    if category not in category_counts:
+                        category_counts[category] = 0
+                    category_counts[category] += 1
+                    
+                    category_folder = os.path.join(folder, category)
+                    dest_path = os.path.join(category_folder, os.path.basename(file_path))
+                    preview.append((file_path, dest_path))
+                
+                # Update progress every 10 files
+                if i % 10 == 0:
+                    self.update_processing_dialog(f"Processing files... ({i}/{total_files})", i, total_files)
+            
+            # Final progress update
+            self.update_processing_dialog("Finalizing preview...", total_files, total_files)
+            
+            if not preview:
+                self.close_processing_dialog()
+                message = "No files found to organize!"
+                self.root.after(0, lambda: messagebox.showinfo("No Files", message))
+                self.log(message)
+                return
+            
+            # Log the category distribution
+            self.log("Files by category:")
+            for category, count in category_counts.items():
+                self.log(f"  {category}: {count} files")
+            
+            # Show preview window on main thread
+            self.root.after(0, lambda p=list(preview): self.show_preview(p))
+            message = f"Preview ready: {len(preview)} files to organize by category"
+            self.root.after(0, lambda: self.status_label.config(text=message))
+            self.log(message)
+            
+            # Close progress dialog
+            self.close_processing_dialog()
+            
+        except Exception as e:
+            self.log(f"Error generating preview: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.close_processing_dialog()
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                        f"An error occurred while generating preview:\n\n{str(e)}"))
+
+    def preview_by_date(self):
+        """Preview organizing files by date"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        self.log(f"Generating preview for organizing files by date in {folder}")
+        
+        # Create and show progress window
+        self.show_processing_dialog("Scanning Files", "Generating preview...")
+        
+        # Run the actual work in a thread to keep UI responsive
+        threading.Thread(
+            target=self._generate_preview_by_date,
+            args=(folder,),
+            daemon=True
+        ).start()
+    
+    def _generate_preview_by_date(self, folder):
+        """Generate preview by date in a background thread"""
+        try:
+            preview = []
+            
+            # Get date format pattern based on selection
+            date_format = {
+                "year": "%Y",
+                "month": "%Y-%m",
+                "day": "%Y-%m-%d"
+            }.get(self.date_format.get(), "%Y-%m-%d")
+            
+            # Get files with progress updates
+            files = self.get_files_with_progress(folder)
+            
+            total_files = len(files)
+            self.update_processing_dialog(f"Processing {total_files} files...", 0, total_files)
+            
+            # Process files
+            for i, file_path in enumerate(files):
+                if os.path.isfile(file_path):
+                    # Update dialog for EXIF processing
+                    if i % 5 == 0:  # More frequent updates for date extraction
+                        self.update_processing_dialog(f"Processing {os.path.basename(file_path)}... ({i}/{total_files})", 
+                                                    i, total_files)
+                    
+                    file_date = self.get_file_date(file_path)
+                    date_folder = os.path.join(folder, file_date.strftime(date_format))
+                    dest_path = os.path.join(date_folder, os.path.basename(file_path))
+                    preview.append((file_path, dest_path))
+                
+            # Final progress update
+            self.update_processing_dialog("Finalizing preview...", total_files, total_files)
+            
+            if not preview:
+                self.close_processing_dialog()
+                message = "No files found to organize!"
+                self.root.after(0, lambda: messagebox.showinfo("No Files", message))
+                self.log(message)
+                return
+            
+            # Show preview window on main thread
+            self.root.after(0, lambda p=list(preview): self.show_preview(p))
+            message = f"Preview ready: {len(preview)} files to organize by date"
+            self.root.after(0, lambda: self.status_label.config(text=message))
+            self.log(message)
+            
+            # Close progress dialog
+            self.close_processing_dialog()
+            
+        except Exception as e:
+            self.log(f"Error generating preview: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.close_processing_dialog()
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                        f"An error occurred while generating preview:\n\n{str(e)}"))
+
+    def find_duplicates(self):
+        """Find duplicate files in the selected folder"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        self.log(f"Starting duplicate file search in {folder}")
+        
+        # Create and show progress window
+        self.show_processing_dialog("Finding Duplicates", "Scanning files...")
+        
+        # Run the actual work in a thread to keep UI responsive
+        threading.Thread(
+            target=self._find_duplicates_thread,
+            args=(folder,),
+            daemon=True
+        ).start()
+    
+    def _find_duplicates_thread(self, folder):
+        """Find duplicate files in a background thread"""
+        try:
+            # Get files with progress updates
+            files = self.get_files_with_progress(folder)
+            
+            if not files:
+                self.close_processing_dialog()
+                message = "No files found to check for duplicates!"
+                self.root.after(0, lambda: messagebox.showinfo("No Files", message))
+                self.log(message)
+                return
+            
+            # Update progress dialog
+            total_files = len(files)
+            self.update_processing_dialog(f"Calculating checksums for {total_files} files...", 0, total_files)
+            
+            # Dictionary to store file checksums
+            # Key: checksum, Value: list of file paths with that checksum
+            file_hashes = {}
+            
+            # For each file, calculate its MD5 hash and store in the dictionary
+            for i, file_path in enumerate(files):
+                try:
+                    # Skip large files (over 100MB) by default
+                    file_size = os.path.getsize(file_path)
+                    if file_size > 100 * 1024 * 1024:
+                        self.log(f"Skipping large file: {file_path} ({self.format_size(file_size)})")
+                        continue
+                    
+                    # Update progress dialog
+                    if i % 10 == 0:
+                        self.update_processing_dialog(f"Processing file {i+1} of {total_files}...", 
+                                                   i, total_files)
+                    
+                    # Calculate hash
+                    file_hash = self._calculate_file_hash(file_path)
+                    
+                    # Skip if hash calculation failed
+                    if not file_hash:
+                        continue
+                        
+                    # Store file hash
+                    if file_hash not in file_hashes:
+                        file_hashes[file_hash] = []
+                    file_hashes[file_hash].append(file_path)
+                    
+                except Exception as e:
+                    self.log(f"Error processing {file_path}: {e}")
+                
+                # Check for cancel
+                if self.cancel_scan:
+                    raise InterruptedError("Duplicate search was cancelled")
+            
+            # Find duplicates (files with the same hash)
+            duplicates = {h: files for h, files in file_hashes.items() if len(files) > 1}
+            
+            # Close progress dialog
+            self.close_processing_dialog()
+            
+            # Show results
+            if not duplicates:
+                self.log("No duplicate files found")
+                self.root.after(0, lambda: messagebox.showinfo("No Duplicates", 
+                                                           "No duplicate files were found in the selected folder."))
+                return
+            
+            # Log results
+            duplicate_count = sum(len(files) - 1 for files in duplicates.values())
+            self.log(f"Found {duplicate_count} duplicate files in {len(duplicates)} groups")
+            
+            # Show duplicate manager dialog with the results
+            self.root.after(0, lambda d=duplicates: self.show_duplicate_manager(d))
+            
+        except InterruptedError:
+            self.log("Duplicate search was cancelled by user")
+            self.close_processing_dialog()
+            
+        except Exception as e:
+            self.log(f"Error finding duplicates: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.close_processing_dialog()
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                        f"An error occurred while finding duplicates:\n\n{str(e)}"))
+    
+    def _calculate_file_hash(self, file_path, block_size=65536):
+        """Calculate MD5 hash for a file"""
+        import hashlib
+        try:
+            md5 = hashlib.md5()
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(block_size), b''):
+                    md5.update(chunk)
+            return md5.hexdigest()
+        except Exception as e:
+            self.log(f"Error calculating hash for {file_path}: {e}")
+            return None
+    
+    def show_duplicate_manager(self, duplicates):
+        """Show a dialog to manage duplicate files"""
+        # Create the dialog
+        dialog = Toplevel(self.root)
+        dialog.title("Duplicate File Manager")
+        dialog.geometry("900x600")  # Larger window for side-by-side comparison
+        dialog.transient(self.root)
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - dialog.winfo_width()) // 2
+        y = (dialog.winfo_screenheight() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Create a list of duplicate groups
+        duplicate_groups = list(duplicates.values())
+        current_group_idx = [0]  # Use list for mutability
+        
+        # Frame for controls
+        control_frame = tk.Frame(dialog)
+        control_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Create navigation controls
+        tk.Label(control_frame, text=f"Duplicate Group: 1/{len(duplicate_groups)}").pack(side="left")
+        
+        # Information panel
+        info_frame = tk.Frame(dialog)
+        info_frame.pack(fill="x", padx=10, pady=5)
+        
+        info_label = tk.Label(info_frame, text=f"Found {sum(len(g)-1 for g in duplicate_groups)} duplicate files in {len(duplicate_groups)} groups.\n"
+                            "Select files to delete using the checkboxes and click 'Delete Selected'.")
+        info_label.pack(anchor="w")
+        
+        # Content frame (will hold duplicate file information)
+        content_frame = tk.Frame(dialog)
+        content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Bottom button frame
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(fill="x", padx=10, pady=10)
+        
+        # Function to update the current duplicate group display
+        def update_duplicate_display():
+            # Clear previous content
+            for widget in content_frame.winfo_children():
+                widget.destroy()
+            
+            # Get current group
+            current_group = duplicate_groups[current_group_idx[0]]
+            
+            # Update navigation label
+            control_frame.winfo_children()[0].config(
+                text=f"Duplicate Group: {current_group_idx[0] + 1}/{len(duplicate_groups)}"
+            )
+            
+            # Create a frame for each file in the group
+            for i, file_path in enumerate(current_group):
+                file_frame = tk.Frame(content_frame, borderwidth=1, relief="groove")
+                file_frame.pack(fill="x", pady=5)
+                
+                # Create a variable for the checkbox
+                var = tk.BooleanVar(value=i > 0)  # Select all except the first file
+                
+                # Top row with checkbox and file info
+                top_row = tk.Frame(file_frame)
+                top_row.pack(fill="x", padx=5, pady=5)
+                
+                # Checkbox
+                check = tk.Checkbutton(top_row, variable=var)
+                check.pack(side="left")
+                
+                # Store the variable in the checkbutton for later reference
+                check.file_path = file_path
+                check.select_var = var
+                
+                # File information
+                file_name = os.path.basename(file_path)
+                file_size = os.path.getsize(file_path)
+                file_date = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M:%S")
+                
+                info_text = f"Name: {file_name}\nPath: {file_path}\nSize: {self.format_size(file_size)}\nModified: {file_date}"
+                info_label = tk.Label(top_row, text=info_text, anchor="w", justify="left")
+                info_label.pack(side="left", padx=10, fill="x", expand=True)
+                
+                # Add preview button if it's an image
+                if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp')):
+                    preview_btn = tk.Button(
+                        top_row, 
+                        text="Preview", 
+                        command=lambda fp=file_path: self.show_image_preview(fp)
+                    )
+                    preview_btn.pack(side="right", padx=5)
+        
+        # Navigation functions
+        def next_group():
+            if current_group_idx[0] < len(duplicate_groups) - 1:
+                current_group_idx[0] += 1
+                update_duplicate_display()
+                
+        def prev_group():
+            if current_group_idx[0] > 0:
+                current_group_idx[0] -= 1
+                update_duplicate_display()
+        
+        # Add navigation buttons
+        nav_frame = tk.Frame(control_frame)
+        nav_frame.pack(side="right")
+        
+        tk.Button(nav_frame, text="< Previous", command=prev_group).pack(side="left", padx=5)
+        tk.Button(nav_frame, text="Next >", command=next_group).pack(side="left", padx=5)
+        
+        # Function to delete selected files
+        def delete_selected():
+            # Get all checkbuttons in the content frame
+            checkbuttons = [w for w in content_frame.winfo_descendants() if isinstance(w, tk.Checkbutton)]
+            
+            # Find selected files
+            selected_files = [cb.file_path for cb in checkbuttons if hasattr(cb, 'select_var') and cb.select_var.get()]
+            
+            if not selected_files:
+                messagebox.showinfo("No Selection", "No files were selected for deletion.")
+                return
+                
+            # Confirm deletion
+            confirm = messagebox.askyesno("Confirm Deletion", 
+                                       f"Are you sure you want to delete {len(selected_files)} selected files?")
+            if not confirm:
+                return
+                
+            # Delete files
+            deleted_count = 0
+            for file_path in selected_files:
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    self.log(f"Deleted duplicate: {file_path}")
+                except Exception as e:
+                    self.log(f"Error deleting {file_path}: {e}")
+            
+            messagebox.showinfo("Deletion Complete", f"Successfully deleted {deleted_count} of {len(selected_files)} files.")
+            
+            # Update the display for the current group
+            # First update our data structure to remove deleted files
+            current_group = duplicate_groups[current_group_idx[0]]
+            current_group = [f for f in current_group if os.path.exists(f)]
+            
+            # If group now has 0-1 files, it's no longer a duplicate group
+            if len(current_group) <= 1:
+                duplicate_groups.pop(current_group_idx[0])
+                if not duplicate_groups:  # No more duplicates
+                    messagebox.showinfo("No More Duplicates", "All duplicate files have been resolved.")
+                    dialog.destroy()
+                    return
+                # Adjust current index if needed
+                if current_group_idx[0] >= len(duplicate_groups):
+                    current_group_idx[0] = len(duplicate_groups) - 1
+            else:
+                # Update the group with remaining files
+                duplicate_groups[current_group_idx[0]] = current_group
+                
+            # Update display
+            update_duplicate_display()
+            
+        # Function to compare two images side by side
+        def compare_selected():
+            # Get all checkbuttons in the content frame
+            checkbuttons = [w for w in content_frame.winfo_descendants() if isinstance(w, tk.Checkbutton)]
+            
+            # Find selected files
+            selected_files = [cb.file_path for cb in checkbuttons if hasattr(cb, 'select_var') and cb.select_var.get()]
+            
+            if len(selected_files) != 2:
+                messagebox.showinfo("Selection Error", "Please select exactly 2 files to compare.")
+                return
+                
+            # Show comparison dialog
+            self.compare_images(selected_files[0], selected_files[1])
+        
+        # Add action buttons
+        tk.Button(button_frame, text="Delete Selected", command=delete_selected,
+                bg="#f44336", fg="white").pack(side="left", padx=10)
+                
+        tk.Button(button_frame, text="Compare Selected", command=compare_selected).pack(side="left", padx=10)
+        
+        tk.Button(button_frame, text="Close", command=dialog.destroy).pack(side="right", padx=10)
+        
+        # Display the first group
+        update_duplicate_display()
+    
+    def show_image_preview(self, image_path):
+        """Show a preview of an image"""
+        if not HAS_PIL:
+            messagebox.showinfo("Missing Dependency", "Pillow (PIL) is required for image preview.")
+            return
+            
+        try:
+            # Create a dialog for the preview
+            preview = Toplevel(self.root)
+            preview.title("Image Preview")
+            preview.geometry("800x600")
+            preview.transient(self.root)
+            
+            # Center the dialog
+            preview.update_idletasks()
+            x = (preview.winfo_screenwidth() - preview.winfo_width()) // 2
+            y = (preview.winfo_screenheight() - preview.winfo_height()) // 2
+            preview.geometry(f"+{x}+{y}")
+            
+            # Load the image
+            image = Image.open(image_path)
+            photo = ImageTk.PhotoImage(image)
+            
+            # Create a label to display the image
+            label = tk.Label(preview, image=photo)
+            label.image = photo  # Keep a reference to avoid garbage collection
+            label.pack(fill="both", expand=True)
+            
+            # Add close button
+            tk.Button(preview, text="Close", command=preview.destroy).pack(pady=10)
+            
+        except Exception as e:
+            self.log(f"Error previewing image: {e}")
+            messagebox.showerror("Error", f"An error occurred while previewing the image:\n\n{e}")
 
     def get_date_from_filename(self, filename):
         """Try to extract a date from filename patterns like YYYYMMDD, YYYY-MM-DD, etc."""
@@ -1290,47 +2016,6 @@ Troubleshooting:
                 
         # If we don't recognize the extension, return "Other"
         return "Other"
-    
-    def preview_by_category(self):
-        """Preview organizing files by category (Images, Documents, Videos, etc.)"""
-        folder = self.path.get()
-        if not folder:
-            messagebox.showerror("Error", "Please select a folder first!")
-            return
-
-        self.log(f"Generating preview for organizing files by category in {folder}")
-        preview = []
-        
-        # Count files in each category for logging
-        category_counts = {}
-        
-        for file_path in self.get_files(folder):
-            if os.path.isfile(file_path):
-                category = self.get_file_category(file_path)
-                # Keep track of how many files in each category
-                if category not in category_counts:
-                    category_counts[category] = 0
-                category_counts[category] += 1
-                
-                category_folder = os.path.join(folder, category)
-                dest_path = os.path.join(category_folder, os.path.basename(file_path))
-                preview.append((file_path, dest_path))
-
-        if not preview:
-            message = "No files found to organize!"
-            messagebox.showinfo("No Files", message)
-            self.log(message)
-            return
-        
-        # Log the category distribution
-        self.log("Files by category:")
-        for category, count in category_counts.items():
-            self.log(f"  {category}: {count} files")
-            
-        self.show_preview(preview)
-        message = f"Preview ready: {len(preview)} files to organize by category"
-        self.status_label.config(text=message)
-        self.log(message)
     
     def show_date_help(self):
         """Show help information about date sources"""
@@ -1939,41 +2624,6 @@ the file's creation date.
             # Fall back to modification time if there's an error
             return datetime.fromtimestamp(os.path.getmtime(file_path))
 
-    def preview_by_date(self):
-        """Preview organizing files by date"""
-        folder = self.path.get()
-        if not folder:
-            messagebox.showerror("Error", "Please select a folder first!")
-            return
-
-        self.log(f"Generating preview for organizing files by date in {folder}")
-        preview = []
-        
-        # Get date format pattern based on selection
-        date_format = {
-            "year": "%Y",
-            "month": "%Y-%m",
-            "day": "%Y-%m-%d"
-        }.get(self.date_format.get(), "%Y-%m-%d")
-        
-        for file_path in self.get_files(folder):
-            if os.path.isfile(file_path):
-                file_date = self.get_file_date(file_path)
-                date_folder = os.path.join(folder, file_date.strftime(date_format))
-                dest_path = os.path.join(date_folder, os.path.basename(file_path))
-                preview.append((file_path, dest_path))
-
-        if not preview:
-            message = "No files found to organize!"
-            messagebox.showinfo("No Files", message)
-            self.log(message)
-            return
-            
-        self.show_preview(preview)
-        message = f"Preview ready: {len(preview)} files to organize by date"
-        self.status_label.config(text=message)
-        self.log(message)
-
     def show_location_help(self):
         """Show help information about location-based organization"""
         help_window = Toplevel(self.root)
@@ -2025,6 +2675,120 @@ to strip location data from photos before sharing them online.
         # Add close button
         close_button = tk.Button(help_window, text="Close", command=help_window.destroy)
         close_button.pack(pady=10)
+
+    def compare_images(self, image1_path, image2_path):
+        """Show side-by-side comparison of two images"""
+        if not HAS_PIL:
+            messagebox.showinfo("Missing Dependency", "Pillow (PIL) is required for image comparison.")
+            return
+            
+        try:
+            from PIL import ImageTk
+            
+            # Create the comparison window
+            compare_window = Toplevel(self.root)
+            compare_window.title("Image Comparison")
+            compare_window.geometry("1000x600")
+            compare_window.transient(self.root)
+            
+            # Create a frame for each image
+            left_frame = tk.Frame(compare_window, bd=1, relief="groove")
+            left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+            
+            right_frame = tk.Frame(compare_window, bd=1, relief="groove")
+            right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+            
+            # Load images
+            img1 = Image.open(image1_path)
+            img2 = Image.open(image2_path)
+            
+            # Get image info
+            img1_size = os.path.getsize(image1_path)
+            img2_size = os.path.getsize(image2_path)
+            
+            img1_date = datetime.fromtimestamp(os.path.getmtime(image1_path)).strftime("%Y-%m-%d %H:%M:%S")
+            img2_date = datetime.fromtimestamp(os.path.getmtime(image2_path)).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Resize images for display if they're too big
+            max_size = (450, 450)  # Max dimensions for the image preview
+            img1.thumbnail(max_size, Image.LANCZOS)
+            img2.thumbnail(max_size, Image.LANCZOS)
+            
+            # Convert to PhotoImage for Tkinter
+            photo1 = ImageTk.PhotoImage(img1)
+            photo2 = ImageTk.PhotoImage(img2)
+            
+            # Image headers with file info
+            tk.Label(left_frame, text=os.path.basename(image1_path), font=("Arial", 10, "bold")).pack(pady=(5, 2))
+            tk.Label(left_frame, text=f"Size: {self.format_size(img1_size)} • Modified: {img1_date}").pack(pady=(0, 5))
+            
+            tk.Label(right_frame, text=os.path.basename(image2_path), font=("Arial", 10, "bold")).pack(pady=(5, 2))
+            tk.Label(right_frame, text=f"Size: {self.format_size(img2_size)} • Modified: {img2_date}").pack(pady=(0, 5))
+            
+            # Display images
+            left_img_label = tk.Label(left_frame, image=photo1)
+            left_img_label.image = photo1  # Keep a reference to prevent garbage collection
+            left_img_label.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            right_img_label = tk.Label(right_frame, image=photo2)
+            right_img_label.image = photo2  # Keep a reference
+            right_img_label.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Action buttons for each image
+            left_btn_frame = tk.Frame(left_frame)
+            left_btn_frame.pack(pady=10, fill="x")
+            
+            right_btn_frame = tk.Frame(right_frame)
+            right_btn_frame.pack(pady=10, fill="x")
+            
+            # Delete buttons
+            tk.Button(left_btn_frame, text="Keep This", bg="#4CAF50", fg="white", width=15,
+                   command=lambda: self._on_keep_image(compare_window, image2_path)).pack(side="left", padx=10)
+            
+            tk.Button(left_btn_frame, text="Delete This", bg="#f44336", fg="white", width=15, 
+                   command=lambda: self._on_delete_image(compare_window, image1_path)).pack(side="right", padx=10)
+            
+            tk.Button(right_btn_frame, text="Keep This", bg="#4CAF50", fg="white", width=15,
+                   command=lambda: self._on_keep_image(compare_window, image1_path)).pack(side="left", padx=10)
+            
+            tk.Button(right_btn_frame, text="Delete This", bg="#f44336", fg="white", width=15,
+                   command=lambda: self._on_delete_image(compare_window, image2_path)).pack(side="right", padx=10)
+            
+            # Button to close without action
+            tk.Button(compare_window, text="Close Without Action", width=20,
+                   command=compare_window.destroy).pack(pady=10)
+            
+        except Exception as e:
+            self.log(f"Error comparing images: {e}")
+            messagebox.showerror("Error", f"Could not compare images: {str(e)}")
+    
+    def _on_delete_image(self, window, image_path):
+        """Handle the deletion of an image from comparison view"""
+        try:
+            # Confirm deletion
+            if messagebox.askyesno("Confirm Deletion", 
+                               f"Are you sure you want to delete '{os.path.basename(image_path)}'?"):
+                os.remove(image_path)
+                self.log(f"Deleted duplicate image: {image_path}")
+                window.destroy()
+                messagebox.showinfo("Success", "Image deleted successfully.")
+        except Exception as e:
+            self.log(f"Error deleting image: {e}")
+            messagebox.showerror("Error", f"Could not delete the image: {str(e)}")
+    
+    def _on_keep_image(self, window, image_to_delete):
+        """Keep current image and delete the other one"""
+        try:
+            # Confirm deletion of the other image
+            if messagebox.askyesno("Confirm Action", 
+                               f"Keep this image and delete '{os.path.basename(image_to_delete)}'?"):
+                os.remove(image_to_delete)
+                self.log(f"Deleted duplicate image: {image_to_delete}")
+                window.destroy()
+                messagebox.showinfo("Success", "Changes applied successfully.")
+        except Exception as e:
+            self.log(f"Error during keep/delete operation: {e}")
+            messagebox.showerror("Error", f"Could not complete the operation: {str(e)}")
 
 if __name__ == '__main__':
     root = tk.Tk()
