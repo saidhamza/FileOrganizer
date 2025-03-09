@@ -43,6 +43,19 @@ def main():
             subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
             has_pillow = True
     
+    # Check if requests is installed (needed for location features)
+    try:
+        import requests
+        has_requests = True
+        print("Requests is installed.")
+    except ImportError:
+        has_requests = False
+        print("Warning: Requests is not installed. Location-based organization will be limited.")
+        install_requests = input("Would you like to install Requests now? (y/n): ")
+        if install_requests.lower() == 'y':
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
+            has_requests = True
+    
     # Define PyInstaller command with options
     pyinstaller_cmd = [
         "pyinstaller",

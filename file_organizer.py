@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Ensure tkinter is installed: sudo apt-get install python3-tk
 # Ensure tkinter is installed: sudo dnf install python3-tkinter
 import os
@@ -74,6 +75,10 @@ class FileOrganizerApp:
             "Code": [".py", ".js", ".html", ".css", ".java", ".c", ".cpp", ".php", ".rb", ".go", ".rs", ".ts", ".sh", ".json", ".xml"],
             "Executables": [".exe", ".msi", ".app", ".bat", ".sh", ".apk", ".deb", ".rpm"]
         }
+        
+        # Add location grouping options
+        self.location_granularity = tk.StringVar()
+        self.location_granularity.set("city")  # Default to city level
         
         self.path = tk.StringVar()
         if "last_directory" in self.config and self.is_valid_path(self.config["last_directory"]):
@@ -227,7 +232,7 @@ class FileOrganizerApp:
 
         # Buttons frame - update with Category option
         preview_label = tk.Label(buttons_frame, text="Preview Options:", font=("Arial", 10, "bold"))
-        preview_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=10)
+        preview_label.grid(row=0, column=0, columnspan=4, sticky="w", pady=10)  # Increased colspan to 4
 
         tk.Button(buttons_frame, text="Preview by Type", command=self.preview_by_type, 
                   width=15, bg="#e0e0ff").grid(row=1, column=0, padx=10, pady=5)
@@ -235,6 +240,8 @@ class FileOrganizerApp:
                   width=15, bg="#e0e0ff").grid(row=1, column=1, padx=10, pady=5)
         tk.Button(buttons_frame, text="Preview by Category", command=self.preview_by_category,
                   width=15, bg="#e0e0ff").grid(row=1, column=2, padx=10, pady=5)
+        tk.Button(buttons_frame, text="Preview by Location", command=self.preview_by_location,
+                  width=15, bg="#e0ffef").grid(row=1, column=3, padx=10, pady=5)
                   
         # Log frame
         log_frame = tk.Frame(root)
@@ -1036,7 +1043,7 @@ Troubleshooting:
             date_fields = ['DateTimeOriginal', 'DateTime', 'CreateDate', 'DateTimeDigitized']
             
             for field in date_fields:
-                if field in exif_data and exif_data[field]:
+                if (field in exif_data and exif_data[field]):
                     # Format usually like "2020:01:30 14:31:26"
                     date_str = str(exif_data[field])
                     try:
@@ -1053,84 +1060,173 @@ Troubleshooting:
             self.log(f"Error reading EXIF data from {file_path}: {e}")
             return None
             
-    def get_file_creation_date(self, file_path):
-        """Get file creation date across different platforms"""
-        try:
-            # For Windows
-            if platform.system() == 'Windows':
-                return datetime.fromtimestamp(os.path.getctime(file_path))
-            # For macOS
-            elif platform.system() == 'Darwin':
-                stat = os.stat(file_path)
-                return datetime.fromtimestamp(stat.st_birthtime)
-            # For Linux (note: Linux doesn't store creation time, so we use a workaround)
-            else:
-                # Use the earliest time between modification and access time as best approximation
-                path = Path(file_path)
-                stat = path.stat()
-                return datetime.fromtimestamp(min(stat.st_mtime, stat.st_atime))
-        except Exception as e:
-            self.log(f"Error getting creation date for {file_path}: {e}")
-            # Fall back to modification time if there's an error
-            return datetime.fromtimestamp(os.path.getmtime(file_path))
-        
-    def get_file_date(self, file_path):
-        """Get the best date for a file based on selected date source"""
-        basename = os.path.basename(file_path)
-        date_source = self.date_source.get()
-        
-        # Use filename date if selected or using all sources
-        if date_source in ["filename", "all"]:
-            date_from_name = self.get_date_from_filename(basename)
-            if date_from_name:
-                self.log(f"Using date from filename for {basename}: {date_from_name.strftime('%Y-%m-%d')}")
-                return date_from_name
-        
-        # Use EXIF data if selected or using all sources
-        if date_source in ["exif", "all"]:
-            date_from_exif = self.get_date_from_exif(file_path)
-            if date_from_exif:
-                self.log(f"Using date from EXIF data for {basename}: {date_from_exif.strftime('%Y-%m-%d')}")
-                return date_from_exif
-        
-        # Use file creation time
-        date_from_file = self.get_file_creation_date(file_path)
-        self.log(f"Using creation date for {basename}: {date_from_file.strftime('%Y-%m-%d')}")
-        return date_from_file
-
-    def preview_by_date(self):
-        folder = self.path.get()
-        if not folder:
-            messagebox.showerror("Error", "Please select a folder first!")
-            return
-
-        self.log(f"Generating preview for organizing files by date in {folder}")
-        preview = []
-        
-        # Get date format pattern based on selection
-        date_format = {
-            "year": "%Y",
-            "month": "%Y-%m",
-            "day": "%Y-%m-%d"
-        }.get(self.date_format.get(), "%Y-%m-%d")
-        
-        for file_path in self.get_files(folder):
-            if os.path.isfile(file_path):
-                file_date = self.get_file_date(file_path)
-                date_folder = os.path.join(folder, file_date.strftime(date_format))
-                dest_path = os.path.join(date_folder, os.path.basename(file_path))
-                preview.append((file_path, dest_path))
-
-        if not preview:
-            message = "No files found to organize!"
-            messagebox.showinfo("No Files", message)
-            self.log(message)
-            return
+    def get_gps_data(self, file_path):
+        """Extract GPS data from image/video EXIF metadata with extra safeguards against segfaults"""
+        if not HAS_PIL:
+            return None
             
-        self.show_preview(preview)
-        message = f"Preview ready: {len(preview)} files to organize by date"
-        self.status_label.config(text=message)
-        self.log(message)
+        try:
+            # First check if file is accessible
+            if not os.path.isfile(file_path) or not os.access(file_path, os.R_OK):
+                self.log(f"File not accessible: {file_path}")
+                return None
+                
+            # Check file size - skip if too large (to avoid memory issues)
+            try:
+                file_size = os.path.getsize(file_path)
+                if file_size > 50 * 1024 * 1024:  # Skip files larger than 50MB
+                    self.log(f"Skipping large file ({file_size/1024/1024:.1f} MB): {os.path.basename(file_path)}")
+                    return None
+            except Exception:
+                pass
+                
+            # Only process known image formats that commonly have GPS data
+            if not file_path.lower().endswith(('.jpg', '.jpeg')):
+                return None
+                
+            # Extract GPS data in a way that avoids PIL segfaulting at shutdown
+            return self._extract_gps_with_exception_trap(file_path)
+                
+        except Exception as e:
+            self.log(f"Error reading EXIF data from {file_path}: {e}")
+            return None
+
+    def _extract_gps_with_exception_trap(self, file_path):
+        """Extract GPS data with added protection to prevent segfaults"""
+        # Use a try-except block with minimal PIL operations
+        try:
+            # Do minimal work with the PIL Image object
+            with open(file_path, 'rb') as f:
+                # Just read a small chunk to verify the file is readable
+                f.read(16)
+                
+            # Extract by hand to avoid PIL segfaults at shutdown
+            from PIL.ExifTags import GPSTAGS
+            
+            # Use a safer approach that minimizes image loading
+            with Image.open(file_path) as image:
+                # Check if image has EXIF data
+                if not hasattr(image, '_getexif') or image._getexif() is None:
+                    return None
+                
+                # Get a copy of EXIF data
+                try:
+                    exif_dict = {}
+                    exif_data = image._getexif()
+                    if not exif_data:
+                        return None
+                        
+                    # Find GPS info tag
+                    gps_info = None
+                    for tag, value in exif_data.items():
+                        tag_name = TAGS.get(tag, str(tag))
+                        exif_dict[tag_name] = value
+                        if tag_name == 'GPSInfo':
+                            gps_info = value
+                            break
+                    
+                    # We no longer need the full EXIF data
+                    exif_dict.clear()
+                    exif_data = None
+                    
+                    if not gps_info:
+                        return None
+                    
+                    # Process GPS data without keeping references to PIL objects
+                    gps_data = {}
+                    for tag_id, value in gps_info.items():
+                        tag_name = GPSTAGS.get(tag_id, str(tag_id))
+                        gps_data[tag_name] = value
+                    
+                    # Extract coordinates safely
+                    if 'GPSLatitude' not in gps_data or 'GPSLongitude' not in gps_data:
+                        return None
+                    
+                    # Convert coordinates
+                    lat = self._convert_gps_coords(gps_data['GPSLatitude'])
+                    lon = self._convert_gps_coords(gps_data['GPSLongitude'])
+                    
+                    if lat is None or lon is None:
+                        return None
+                        
+                    # Apply reference direction
+                    if gps_data.get('GPSLatitudeRef', 'N') == 'S':
+                        lat = -lat
+                    if gps_data.get('GPSLongitudeRef', 'E') == 'W':
+                        lon = -lon
+                    
+                    # Validate coordinates
+                    if abs(lat) > 90 or abs(lon) > 180:
+                        return None
+                    
+                    # Create an independent result dictionary
+                    result = {'latitude': lat, 'longitude': lon}
+                    
+                    # Clean up references to prevent memory leaks
+                    gps_info = None
+                    gps_data = None
+                    
+                    return result
+                    
+                except Exception as e:
+                    self.log(f"GPS extraction error: {str(e)}")
+                    return None
+                    
+        except Exception as e:
+            self.log(f"Image loading error: {str(e)}")
+            return None
+        
+        return None
+    
+    def _convert_gps_coords(self, coords):
+        """Convert GPS coordinates safely with local variables"""
+        if not coords or not hasattr(coords, '__len__') or len(coords) != 3:
+            return None
+            
+        try:
+            # Extract degrees, minutes, seconds
+            degrees = minutes = seconds = 0
+            
+            # Get degrees
+            if hasattr(coords[0], 'numerator') and hasattr(coords[0], 'denominator'):
+                if coords[0].denominator != 0:
+                    degrees = float(coords[0].numerator) / float(coords[0].denominator)
+            elif isinstance(coords[0], tuple) and len(coords[0]) == 2:
+                if coords[0][1] != 0:
+                    degrees = float(coords[0][0]) / float(coords[0][1])
+            else:
+                degrees = float(coords[0])
+                
+            # Get minutes
+            if hasattr(coords[1], 'numerator') and hasattr(coords[1], 'denominator'):
+                if coords[1].denominator != 0:
+                    minutes = float(coords[1].numerator) / float(coords[1].denominator)
+            elif isinstance(coords[1], tuple) and len(coords[1]) == 2:
+                if coords[1][1] != 0:
+                    minutes = float(coords[1][0]) / float(coords[1][1])
+            else:
+                minutes = float(coords[1])
+                
+            # Get seconds
+            if hasattr(coords[2], 'numerator') and hasattr(coords[2], 'denominator'):
+                if coords[2].denominator != 0:
+                    seconds = float(coords[2].numerator) / float(coords[2].denominator)
+            elif isinstance(coords[2], tuple) and len(coords[2]) == 2:
+                if coords[2][1] != 0:
+                    seconds = float(coords[2][0]) / float(coords[2][1])
+            else:
+                seconds = float(coords[2])
+            
+            # Final validation
+            if degrees < 0 or degrees > 180 or minutes < 0 or minutes >= 60 or seconds < 0 or seconds >= 60:
+                return None
+                
+            # Calculate and return decimal degrees
+            decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+            return decimal
+            
+        except Exception:
+            return None
 
     def execute_organization(self):
         if not self.preview:
@@ -1345,7 +1441,593 @@ the file's creation date.
             except Exception as e:
                 self.log(f"Error removing directory {path}: {e}")
 
+    def preview_by_location(self):
+        """Preview organizing files by their geographic location metadata"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        self.log(f"Generating preview for organizing files by location in {folder}")
+        
+        # Show location configuration before processing
+        if not self.configure_location_settings():
+            self.log("Location-based organization cancelled by user")
+            return
+        
+        # Check if requests is installed
+        try:
+            import requests
+        except ImportError:
+            if messagebox.askyesno("Missing Dependency", 
+                                  "The 'requests' library is required for location-based organization.\n\n"
+                                  "Would you like to install it now?"):
+                try:
+                    import sys
+                    import subprocess
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
+                    import requests
+                    self.log("Requests library installed successfully.")
+                except Exception as e:
+                    self.log(f"Error installing requests: {e}")
+                    messagebox.showerror("Installation Failed", 
+                                       f"Could not install the requests library: {e}\n\n"
+                                       "Please install it manually with: pip install requests")
+                    return
+            else:
+                self.log("Location-based organization cancelled - missing requests library")
+                return
+                
+        # Also verify PIL is installed
+        if not HAS_PIL:
+            messagebox.showwarning("Missing Dependency", 
+                                  "Pillow (PIL) is not installed. Location data extraction will not work.\n\n"
+                                  "Please install it with: pip install pillow")
+            self.log("WARNING: PIL not installed, cannot extract location data")
+            return
+        
+        # Show a loading dialog as geocoding can take time
+        loading = Toplevel(self.root)
+        loading.title("Processing")
+        loading.geometry("300x140")  # Made taller for more status info
+        loading.resizable(False, False)
+        loading.transient(self.root)
+        loading.grab_set()
+        
+        # Center the dialog
+        loading.update_idletasks()
+        x = (loading.winfo_screenwidth() - loading.winfo_width()) // 2
+        y = (loading.winfo_screenheight() - loading.winfo_height()) // 2
+        loading.geometry(f"+{x}+{y}")
+        
+        # Two-line status
+        status_frame = tk.Frame(loading)
+        status_frame.pack(fill="x", expand=True, padx=10, pady=(15,0))
+        
+        status_label = tk.Label(status_frame, text="Scanning files...", font=("Arial", 10))
+        status_label.pack(fill="x")
+        
+        detail_label = tk.Label(status_frame, text="", font=("Arial", 8))
+        detail_label.pack(fill="x")
+        
+        status_detail = tk.Label(status_frame, text="", font=("Arial", 8), fg="blue")
+        status_detail.pack(fill="x")
+        
+        # Progress bar
+        progress = ttk.Progressbar(loading, orient="horizontal", length=280, mode="determinate")
+        progress.pack(pady=10, padx=10)
+        
+        # Cancel button
+        cancel_btn = tk.Button(loading, text="Cancel", command=loading.destroy)
+        cancel_btn.pack(pady=(0, 10))
+        
+        # Use a flag to track if processing was cancelled
+        processing_cancelled = [False]
+        
+        def cancel_processing():
+            processing_cancelled[0] = True
+            loading.destroy()
+            
+        cancel_btn.config(command=cancel_processing)
+        
+        # Process files in a separate thread with segfault protection
+        self.location_thread = threading.Thread(
+            target=lambda: self._process_location_with_cleanup(
+                folder, loading, progress, status_label, detail_label, status_detail, processing_cancelled),
+            daemon=True
+        )
+        self.location_thread.start()
+
+    def _process_location_with_cleanup(self, folder, loading, progress, status_label, 
+                                    detail_label, status_detail, processing_cancelled):
+        """Process files for location with explicit cleanup to prevent segfaults"""
+        try:
+            # Initialize locals to None to ensure proper cleanup
+            preview = None
+            location_counts = None
+            files = None
+            image_files = None
+            
+            # Call the actual processing function with more defensive programming
+            self._process_location_files(folder, loading, progress, status_label,
+                                      detail_label, status_detail, processing_cancelled)
+        except Exception as e:
+            self.log(f"Critical error in location processing: {str(e)}")
+            import traceback
+            self.log(f"Error details: {traceback.format_exc()}")
+            self.root.after(0, lambda: self.safe_destroy_window(loading))
+            self.root.after(0, lambda: messagebox.showerror("Error",
+                                                          f"An error occurred while processing location data:\n\n{str(e)}"))
+        finally:
+            # Force garbage collection multiple times to ensure cleanup
+            import gc
+            gc.collect()
+            gc.collect()
+            
+            # Remove any reference to the thread
+            if hasattr(self, 'location_thread'):
+                self.location_thread = None
+                
+            # Explicitly nullify variables that might have PIL references
+            preview = None
+            location_counts = None
+            files = None
+            image_files = None
+            gc.collect()
+
+    def safe_destroy_window(self, window):
+        """Safely destroy a window if it exists and hasn't been destroyed"""
+        try:
+            if window and window.winfo_exists():
+                window.destroy()
+        except:
+            pass
+
+    def _process_location_files(self, folder, loading, progress, status_label,
+                             detail_label, status_detail, processing_cancelled):
+        """Process files for location-based organization with additional safety"""
+        preview = []
+        location_counts = {}  # Track which locations have files
+        files_with_location = 0
+        files_without_location = 0
+        error_count = 0  # Track errors for reporting
+        
+        # Get all files first
+        try:
+            files = self.get_files(folder)
+            # Create a copy of filtered files and clear original to reduce memory pressure
+            image_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg'))]
+            files = None  # Allow garbage collection of original list
+            
+            if not image_files:
+                self.log("No image files found in selected folder")
+                self.root.after(0, lambda: self.safe_destroy_window(loading))
+                self.root.after(0, lambda: messagebox.showinfo("No Files", 
+                        "No image files found that might contain location data."))
+                return
+                
+            self.log(f"Found {len(image_files)} image files to process")
+            total_files = len(image_files)
+            
+            # Update progress settings
+            self.root.after(0, lambda: progress.config(maximum=total_files))
+            
+            # Process in smaller batches to prevent memory issues
+            batch_size = 5  # Reduced batch size
+            for batch_start in range(0, total_files, batch_size):
+                # Check if processing was cancelled
+                if processing_cancelled[0]:
+                    self.log("Location processing cancelled by user")
+                    return
+                    
+                batch_end = min(batch_start + batch_size, total_files)
+                batch = image_files[batch_start:batch_end]
+                
+                # Process each file in the batch
+                for i, file_path in enumerate(batch):
+                    # Force garbage collection every 20 files
+                    if (batch_start + i) % 20 == 0:
+                        import gc
+                        gc.collect()
+                        
+                    current_index = batch_start + i
+                    file_basename = os.path.basename(file_path)
+                    
+                    # Update progress more frequently
+                    progress_pct = int((current_index / total_files) * 100)
+                    self.root.after(0, lambda idx=current_index, tot=total_files, pct=progress_pct, found=files_with_location, name=file_basename: (
+                        status_label.config(text=f"Processing files... ({idx+1}/{tot})"),
+                        detail_label.config(text=f"{pct}% complete - {found} photos with GPS data found"),
+                        status_detail.config(text=f"Current file: {name}"),
+                        progress.config(value=idx+1)
+                    ))
+                    
+                    # Extract GPS data
+                    try:
+                        # Skip files that are too large (>30MB)
+                        try:
+                            if os.path.getsize(file_path) > 30 * 1024 * 1024:
+                                self.log(f"Skipping large file: {file_basename}")
+                                continue
+                        except:
+                            pass
+                            
+                        gps_data = self.get_gps_data(file_path)
+                        
+                        # Add very small sleep to prevent UI lockups
+                        time.sleep(0.01)
+                        
+                        if gps_data and (gps_data['latitude'] != 0 or gps_data['longitude'] != 0):
+                            # Get location name (with Berber characters filtered)
+                            try:
+                                location_name = self.get_location_name(gps_data, self.location_granularity.get())
+                            except Exception as e:
+                                self.log(f"Error getting location name: {e}")
+                                location_name = f"GPS({gps_data['latitude']:.4f},{gps_data['longitude']:.4f})"
+                            
+                            # Create safe folder name
+                            safe_location = re.sub(r'[<>:"/\\|?*]', '_', location_name)
+                            
+                            # Prepare destination path
+                            location_folder = os.path.join(folder, "Locations", safe_location)
+                            dest_path = os.path.join(location_folder, file_basename)
+                            
+                            # Add to preview
+                            preview.append((file_path, dest_path))
+                            
+                            # Track location
+                            if safe_location not in location_counts:
+                                location_counts[safe_location] = 0
+                            location_counts[safe_location] += 1
+                            
+                            files_with_location += 1
+                        else:
+                            # For files without location data
+                            unknown_folder = os.path.join(folder, "Locations", "Unknown Location")
+                            dest_path = os.path.join(unknown_folder, file_basename)
+                            preview.append((file_path, dest_path))
+                            files_without_location += 1
+                    except Exception as e:
+                        error_count += 1
+                        self.log(f"Error processing {file_basename}: {str(e)}")
+                
+                # Sleep briefly between batches to allow UI updates
+                time.sleep(0.1)
+            
+            # Show results
+            self.root.after(0, lambda: self.safe_destroy_window(loading))
+            
+            if processing_cancelled[0]:
+                return
+                
+            if not preview:
+                self.root.after(0, lambda: messagebox.showinfo("No Location Data", 
+                                                           "No files with location data were found."))
+                self.log("No files found with location data")
+                return
+            
+            # Log results
+            self.log(f"Files by location: {files_with_location} with location data, {files_without_location} without")
+            for location, count in sorted(location_counts.items()):
+                self.log(f"  {location}: {count} files")
+            
+            # Save preview and show on UI thread
+            self.root.after(0, lambda p=list(preview): self.show_preview(p))
+            self.log(f"Preview ready: {len(preview)} files to organize by location")
+            
+            # Allow garbage collection
+            preview.clear()
+            location_counts.clear()
+            image_files.clear()
+            
+        except Exception as e:
+            self.log(f"Error in location processing: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.root.after(0, lambda: self.safe_destroy_window(loading))
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                         f"An error occurred while processing files:\n\n{str(e)}"))
+
+    def configure_location_settings(self):
+        """Configure settings for location-based organization"""
+        if not hasattr(self, 'location_granularity'):
+            self.location_granularity = tk.StringVar()
+            self.location_granularity.set("city")
+            
+        # Create dialog
+        dialog = Toplevel(self.root)
+        dialog.title("Location Organization Settings")
+        dialog.geometry("400x450")  # Increased height to ensure buttons are visible
+        dialog.resizable(True, True)  # Allow resizing for different screen resolutions
+        dialog.minsize(400, 350)    # Set minimum size to ensure content visibility
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - dialog.winfo_width()) // 2
+        y = (dialog.winfo_screenheight() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Main frame with padding and scrollable if needed
+        main_frame = tk.Frame(dialog, padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Location granularity options with more spacing
+        tk.Label(main_frame, text="Location Detail Level:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 10))
+        
+        options_frame = tk.Frame(main_frame)
+        options_frame.pack(fill="x", pady=10)
+        
+        # Add radio buttons with more padding
+        tk.Radiobutton(options_frame, text="By Country", 
+                     variable=self.location_granularity, 
+                     value="country").pack(anchor="w", pady=3)
+                     
+        tk.Radiobutton(options_frame, text="By City/Region (Recommended)", 
+                     variable=self.location_granularity, 
+                     value="city").pack(anchor="w", pady=3)
+                     
+        tk.Radiobutton(options_frame, text="By Exact Coordinates", 
+                     variable=self.location_granularity, 
+                     value="exact").pack(anchor="w", pady=3)
+        
+        # Add information text
+        info_frame = tk.Frame(main_frame)
+        info_frame.pack(fill="x", pady=15)  # Increased vertical padding
+        
+        info_text = "This feature organizes photos based on GPS coordinates in their metadata.\n" + \
+                   "Internet connection is required for reverse geocoding.\n" + \
+                   "Photos without GPS data will be placed in an 'Unknown Location' folder."
+                   
+        tk.Label(info_frame, text=info_text, justify="left", 
+               wraplength=350).pack(anchor="w")
+        
+        # Help button
+        help_button = tk.Button(main_frame, text="Learn More", 
+                              command=self.show_location_help)
+        help_button.pack(anchor="w", pady=15)  # Increased padding
+        
+        result = [False]  # To store result
+        
+        # Buttons - now in their own frame with more padding
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(fill="x", padx=20, pady=20)  # Increased padding
+        
+        def on_continue():
+            result[0] = True
+            dialog.destroy()
+            
+        cancel_btn = tk.Button(button_frame, text="Cancel", 
+                command=dialog.destroy, width=10)
+        cancel_btn.pack(side="right", padx=5)
+                
+        continue_btn = tk.Button(button_frame, text="Continue", 
+                command=on_continue, width=10, bg="#4CAF50", fg="white")
+        continue_btn.pack(side="right", padx=5)
+        
+        # Ensure buttons are visible by giving them focus
+        continue_btn.focus_set()
+        
+        # Wait for dialog
+        dialog.wait_window()
+        return result[0]
+
+    def get_location_name(self, gps_data, granularity="city"):
+        """Get location name from GPS coordinates using reverse geocoding"""
+        if not gps_data or gps_data['latitude'] == 0 and gps_data['longitude'] == 0:
+            return "Unknown Location"
+            
+        try:
+            import requests
+            lat = gps_data['latitude']
+            lon = gps_data['longitude']
+            
+            # Log geocoding request
+            self.log(f"Requesting location info for coordinates: ({lat:.6f}, {lon:.6f})")
+            
+            # Use Nominatim for reverse geocoding (no API key required)
+            # Using zoom parameter to control detail level
+            zoom_level = {"country": 3, "city": 10, "exact": 18}.get(granularity, 10)
+            url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom={zoom_level}"
+            headers = {"User-Agent": "FileOrganizer/1.0"}
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                self.log(f"Geocoding API error {response.status_code}: {response.text}")
+                return f"GPS({lat:.4f},{lon:.4f})"
+                
+            data = response.json()
+            
+            # Extract location based on granularity
+            location_name = ""
+            if granularity == "country":
+                if "address" in data and "country" in data["address"]:
+                    location_name = data["address"]["country"]
+                else:
+                    location_name = "Unknown Country"
+            
+            elif granularity == "city":
+                address = data.get("address", {})
+                # Try different fields for city/region name in priority order
+                for field in ["city", "town", "village", "county", "state", "country"]:
+                    if field in address:
+                        if field != "country" and "country" in address:
+                            location_name = f"{address[field]}, {address['country']}"
+                            break
+                        location_name = address[field]
+                        break
+                
+                # Fallback to display_name which contains the complete address
+                if not location_name and "display_name" in data:
+                    # Take just the first part of the display name to keep it shorter
+                    parts = data["display_name"].split(",")
+                    if len(parts) > 2:
+                        location_name = f"{parts[0].strip()}, {parts[-1].strip()}"
+                    else:
+                        location_name = data["display_name"]
+                    
+                # Last resort - use coordinates
+                if not location_name:
+                    location_name = f"GPS({lat:.4f},{lon:.4f})"
+            
+            else:  # exact - use precise coordinates
+                location_name = f"GPS({lat:.4f},{lon:.4f})"
+            
+            # Filter out non-Latin characters (including Berber) to prevent encoding issues
+            # This keeps only ASCII and common Latin characters
+            filtered_name = ''.join(c for c in location_name if ord(c) < 128)
+            
+            # If filtering removed all characters, use GPS coordinates
+            if not filtered_name or filtered_name.isspace():
+                filtered_name = f"GPS({lat:.4f},{lon:.4f})"
+                
+            self.log(f"Location: {filtered_name}")
+            return filtered_name
+                
+        except ImportError:
+            self.log("Warning: Requests library not installed. Using GPS coordinates only.")
+            return f"GPS({gps_data['latitude']:.4f},{gps_data['longitude']:.4f})"
+        except Exception as e:
+            self.log(f"Error getting location name: {e}")
+            lat = gps_data['latitude']
+            lon = gps_data['longitude']
+            return f"GPS({lat:.4f},{lon:.4f})"
+
+    def get_file_date(self, file_path):
+        """Get the best date for a file based on selected date source"""
+        basename = os.path.basename(file_path)
+        date_source = self.date_source.get()
+        
+        # Use filename date if selected or using all sources
+        if date_source in ["filename", "all"]:
+            date_from_name = self.get_date_from_filename(basename)
+            if date_from_name:
+                self.log(f"Using date from filename for {basename}: {date_from_name.strftime('%Y-%m-%d')}")
+                return date_from_name
+        
+        # Use EXIF data if selected or using all sources
+        if date_source in ["exif", "all"]:
+            date_from_exif = self.get_date_from_exif(file_path)
+            if date_from_exif:
+                self.log(f"Using date from EXIF data for {basename}: {date_from_exif.strftime('%Y-%m-%d')}")
+                return date_from_exif
+        
+        # Use file creation time
+        date_from_file = self.get_file_creation_date(file_path)
+        self.log(f"Using creation date for {basename}: {date_from_file.strftime('%Y-%m-%d')}")
+        return date_from_file
+
+    def get_file_creation_date(self, file_path):
+        """Get file creation date across different platforms"""
+        try:
+            # For Windows
+            if platform.system() == 'Windows':
+                return datetime.fromtimestamp(os.path.getctime(file_path))
+            # For macOS
+            elif platform.system() == 'Darwin':
+                stat = os.stat(file_path)
+                return datetime.fromtimestamp(stat.st_birthtime)
+            # For Linux (note: Linux doesn't store creation time, so we use a workaround)
+            else:
+                # Use the earliest time between modification and access time as best approximation
+                path = Path(file_path)
+                stat = path.stat()
+                return datetime.fromtimestamp(min(stat.st_mtime, stat.st_atime))
+        except Exception as e:
+            self.log(f"Error getting creation date for {file_path}: {e}")
+            # Fall back to modification time if there's an error
+            return datetime.fromtimestamp(os.path.getmtime(file_path))
+
+    def preview_by_date(self):
+        """Preview organizing files by date"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        self.log(f"Generating preview for organizing files by date in {folder}")
+        preview = []
+        
+        # Get date format pattern based on selection
+        date_format = {
+            "year": "%Y",
+            "month": "%Y-%m",
+            "day": "%Y-%m-%d"
+        }.get(self.date_format.get(), "%Y-%m-%d")
+        
+        for file_path in self.get_files(folder):
+            if os.path.isfile(file_path):
+                file_date = self.get_file_date(file_path)
+                date_folder = os.path.join(folder, file_date.strftime(date_format))
+                dest_path = os.path.join(date_folder, os.path.basename(file_path))
+                preview.append((file_path, dest_path))
+
+        if not preview:
+            message = "No files found to organize!"
+            messagebox.showinfo("No Files", message)
+            self.log(message)
+            return
+            
+        self.show_preview(preview)
+        message = f"Preview ready: {len(preview)} files to organize by date"
+        self.status_label.config(text=message)
+        self.log(message)
+
+    def show_location_help(self):
+        """Show help information about location-based organization"""
+        help_window = Toplevel(self.root)
+        help_window.title("Location Organization Help")
+        help_window.geometry("500x400")
+        help_window.transient(self.root)
+        
+        text = Text(help_window, wrap=tk.WORD, padx=10, pady=10)
+        text.pack(fill="both", expand=True)
+        
+        help_text = """Location-based Organization:
+
+This feature organizes photos and videos based on the GPS coordinates stored in their 
+metadata (EXIF data).
+
+Requirements:
+• Pillow/PIL library for extracting EXIF data
+• Requests library for reverse geocoding (installed automatically if needed)
+• Photos/videos must contain GPS metadata
+
+Detail Level Options:
+
+1. By Country
+   Organizes photos into folders named after countries:
+   Example: "United States", "France", "Japan"
+
+2. By City/Region (Default)
+   Organizes photos into folders named after cities or regions:
+   Example: "New York, United States", "Paris, France"
+
+3. By Exact Coordinates
+   Uses precise GPS coordinates as folder names:
+   Example: "GPS(40.7128,-74.0060)" for New York City
+
+Notes:
+• Smartphones and many digital cameras automatically embed GPS data in photos
+• Photos without location data will be placed in an "Unknown Location" folder
+• The app uses OpenStreetMap's Nominatim service for reverse geocoding
+• Internet connection is required for reverse geocoding
+• Video files may have limited location data support
+
+Privacy Tip: If you're concerned about location privacy, consider using tools 
+to strip location data from photos before sharing them online.
+"""
+        
+        text.insert(tk.END, help_text)
+        text.config(state="disabled")
+        
+        # Add close button
+        close_button = tk.Button(help_window, text="Close", command=help_window.destroy)
+        close_button.pack(pady=10)
+
 if __name__ == '__main__':
     root = tk.Tk()
     app = FileOrganizerApp(root)
     root.mainloop()
+

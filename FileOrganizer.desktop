@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=File Organizer
+Comment=Organize your files automatically by type, date, or category
+Exec=/home/user/Code/FileOrganizer/dist/FileOrganizer
+Icon=/home/user/Code/FileOrganizer/icon.png
+Terminal=false
+Categories=Utility;FileTools;

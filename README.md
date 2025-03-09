@@ -14,6 +14,7 @@ A Python desktop application that helps you organize your files automatically by
 - **Customizable Date Format**: Organize by year, month, or day
 - **Empty Folder Cleanup**: Option to delete empty folders after organization
 - **Recent Folders**: Quick access to recently used folders
+- **Location-based Organization**: Sort photos by where they were taken (using GPS data)
 
 ## Requirements
 
@@ -23,6 +24,7 @@ A Python desktop application that helps you organize your files automatically by
   - On Fedora/RHEL: `sudo dnf install python3-tkinter`
   - On Windows/macOS: Already included with Python
 - Pillow (optional, for EXIF data extraction)
+- Requests (optional, for location-based organization)
 
 ## Installation
 
@@ -41,8 +43,8 @@ A Python desktop application that helps you organize your files automatically by
    # Fedora/RHEL:
    sudo dnf install python3-tkinter
    
-   # Install optional Pillow for EXIF support:
-   pip install pillow
+   # Install optional dependencies:
+   pip install pillow requests
    ```
 
 3. Run the application:
@@ -87,6 +89,7 @@ To create a standalone executable that can run without Python:
    - "Preview by Type" to organize by file extension
    - "Preview by Date" to organize by date (choose date source and format)
    - "Preview by Category" to organize by predefined categories
+   - "Preview by Location" to organize photos by where they were taken
 3. **Review the changes** in the preview window
 4. **Click "Execute"** to apply the changes
 
