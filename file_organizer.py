@@ -89,7 +89,7 @@ class FileOrganizerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("File Organizer")
-        self.root.geometry("730x700")  # Increased height for additional options
+        self.root.geometry("880x700")  # Increased height for additional options
         self.root.minsize(600, 800)    # Increased minimum height
         self.root.resizable(True, True)
 
@@ -267,7 +267,7 @@ class FileOrganizerApp:
 
         # Buttons frame - update with Category option
         preview_label = tk.Label(buttons_frame, text="Preview Options:", font=("Arial", 10, "bold"))
-        preview_label.grid(row=0, column=0, columnspan=4, sticky="w", pady=10)  # Increased colspan to 4
+        preview_label.grid(row=0, column=0, columnspan=5, sticky="w", pady=10)  # Increased colspan to 5
 
         tk.Button(buttons_frame, text="Preview by Type", command=self.preview_by_type, 
                   width=15, bg="#e0e0ff").grid(row=1, column=0, padx=10, pady=5)
@@ -277,17 +277,18 @@ class FileOrganizerApp:
                   width=15, bg="#e0e0ff").grid(row=1, column=2, padx=10, pady=5)
         tk.Button(buttons_frame, text="Preview by Location", command=self.preview_by_location,
                   width=15, bg="#e0ffef").grid(row=1, column=3, padx=10, pady=5)
+        tk.Button(buttons_frame, text="Preview by Resolution", command=self.preview_by_resolution,
+                  width=15, bg="#ffefe0").grid(row=1, column=4, padx=10, pady=5)
         
         # Add utility functions row with Find Duplicates button
         utils_label = tk.Label(buttons_frame, text="Utilities:", font=("Arial", 10, "bold"))
-        utils_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(15, 10))
+        utils_label.grid(row=2, column=0, columnspan=5, sticky="w", pady=(15, 10))
         
-        # Find Duplicates button
-        duplicate_btn = tk.Button(buttons_frame, text="Find Duplicates", command=self.find_duplicates,
-                                width=15, bg="#ffe0e0")
-        duplicate_btn.grid(row=3, column=0, padx=10, pady=5)
-        ToolTip(duplicate_btn, "Find and manage duplicate files based on content")
-                  
+        tk.Button(buttons_frame, text="Find Duplicates", command=self.find_duplicates,
+                  width=15, bg="#ffe0e0").grid(row=3, column=0, padx=10, pady=5)
+        ToolTip(tk.Button(buttons_frame, text="Find Duplicates", command=self.find_duplicates,
+                  width=15, bg="#ffe0e0"), "Find and manage duplicate files based on content")
+
         # Log frame
         log_frame = tk.Frame(root)
         log_frame.pack(fill="both", expand=True, padx=20, pady=10)
@@ -316,7 +317,7 @@ class FileOrganizerApp:
             self.log("WARNING: PIL/Pillow not installed. EXIF data extraction will not be available.")
         if self.path.get():
             self.log(f"Loaded last directory: {self.path.get()}")
-
+    
     def is_valid_path(self, path):
         """Check if the path is valid and accessible"""
         try:
@@ -340,7 +341,7 @@ class FileOrganizerApp:
     def update_date_format_preview(self):
         """Update the date format preview label"""
         self.date_format_preview.config(text="Example: " + self.get_date_format_example())
-            
+    
     def on_recent_folder_selected(self, event):
         """Handle selection from recent folders dropdown"""
         folder = self.recent_var.get()
@@ -364,7 +365,7 @@ class FileOrganizerApp:
         self.recent_folders.insert(0, folder)
         # Keep only the 5 most recent folders
         self.recent_folders = self.recent_folders[:5]
-
+    
     def load_config(self):
         """Load configuration from file"""
         try:
@@ -392,7 +393,7 @@ class FileOrganizerApp:
                 
         except Exception as e:
             print(f"Error saving config: {e}")
-            
+    
     def on_closing(self):
         """Handle window closing event"""
         self.save_config()
@@ -479,7 +480,7 @@ class FileOrganizerApp:
         cancel_btn = tk.Button(source_dialog, text="Cancel", command=source_dialog.destroy, width=10)
         cancel_btn.pack(pady=15)
         
-        # Wait for dialog to close
+        # Wait for dialog to close    
         self.root.wait_window(source_dialog)
     
     def on_folder_selected(self, folder):
@@ -496,7 +497,6 @@ class FileOrganizerApp:
                 args=(folder,),
                 daemon=True
             ).start()
-            
             self.log(f"Selected folder: {folder}")
     
     def _count_files_in_folder(self, folder):
@@ -622,7 +622,6 @@ class FileOrganizerApp:
         
         # Wait for dialog to close
         self.root.wait_window(recent_dialog)
-        
         return result[0]
     
     def manual_network_path_input(self):
@@ -639,6 +638,12 @@ class FileOrganizerApp:
         dialog.geometry(f"+{x}+{y}")
         
         result = [None]  # Use list to store result from inner function
+        
+        info_text = "Enter the network path to the shared folder.\n" + \
+                    "Examples:\n" + \
+                    "  Windows: \\\\server\\share\n" + \
+                    "  Linux/macOS: //server/share\n" + \
+                    "  With credentials: //username:password@server/share"
         
         tk.Label(dialog, text=info_text, justify="left").pack(padx=20, anchor="w")
         
@@ -689,7 +694,7 @@ class FileOrganizerApp:
         # Wait for dialog to close
         dialog.wait_window()
         
-        # Return the path if entered
+        # Return the path if entered        
         return result[0]
 
     def show_network_help(self):
@@ -717,7 +722,6 @@ class FileOrganizerApp:
         
         general_text = Text(general_frame, wrap=tk.WORD, padx=10, pady=10)
         general_text.pack(fill="both", expand=True)
-        
         general_text.insert(tk.END, """Network Share Access - General Information
 
 To access shared network folders (SMB/CIFS shares):
@@ -746,7 +750,6 @@ tools as described in the platform-specific tabs.
         
         windows_text = Text(windows_frame, wrap=tk.WORD, padx=10, pady=10)
         windows_text.pack(fill="both", expand=True)
-        
         windows_text.insert(tk.END, """Windows - Accessing Network Shares
 
 Method 1: Map a Network Drive
@@ -775,7 +778,6 @@ Troubleshooting:
         
         linux_text = Text(linux_frame, wrap=tk.WORD, padx=10, pady=10)
         linux_text.pack(fill="both", expand=True)
-        
         linux_text.insert(tk.END, """Linux - Accessing Network Shares
 
 Method 1: Mount using terminal
@@ -808,7 +810,6 @@ Prerequisites:
         
         mac_text = Text(mac_frame, wrap=tk.WORD, padx=10, pady=10)
         mac_text.pack(fill="both", expand=True)
-        
         mac_text.insert(tk.END, """macOS - Accessing Network Shares
 
 Method 1: Using Finder
@@ -837,21 +838,11 @@ Troubleshooting:
 """)
         mac_text.config(state="disabled")
         
-        # Add close button
+        # Add close button        
         tk.Button(help_dialog, text="Close", command=help_dialog.destroy, width=10).pack(pady=10)
-
+    
     def get_files(self, folder):
         files = []
-        for root, _, filenames in os.walk(folder):
-            for filename in filenames:
-                files.append(os.path.join(root, filename))
-            if not self.include_subfolders.get():
-                break
-        return files
-
-    def show_preview(self, preview):
-        self.preview = preview
-        preview_window = Toplevel(self.root)
         for root, _, filenames in os.walk(folder):
             for filename in filenames:
                 files.append(os.path.join(root, filename))
@@ -868,7 +859,7 @@ Troubleshooting:
         # Add instructions
         tk.Label(preview_window, text="Review the changes below and click Execute to proceed", 
                  font=("Arial", 10)).pack(pady=10)
-
+        
         # Create treeview with scrollbar
         frame = tk.Frame(preview_window)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -885,10 +876,10 @@ Troubleshooting:
         tree.column("Source", width=350)
         tree.column("Destination", width=350)
         tree.pack(side="left", fill="both", expand=True)
-
+        
         for src, dst in preview:
             tree.insert("", "end", values=(src, dst))
-
+        
         # Button frame
         button_frame = tk.Frame(preview_window)
         button_frame.pack(fill="x", pady=10)
@@ -1019,12 +1010,12 @@ Troubleshooting:
             # Update every 10 files processed or give the UI a chance to update
             if progress_value % 10 == 0:
                 time.sleep(0.01)  # Brief pause to allow UI to update
-
+        
         # Delete empty folders if option is enabled
         if self.delete_empty_folders.get():
             self.log("Checking for empty folders to delete...")
             self.remove_empty_dirs(self.path.get())
-
+        
         message = f"Successfully organized {success_count} of {len(self.preview)} files! Skipped {skipped_count} files."
         self.status_label.config(text=message)
         self.log(message)
@@ -1033,11 +1024,11 @@ Troubleshooting:
         self.root.after(0, lambda: messagebox.showinfo("Success", 
                             f"Successfully organized {success_count} of {len(self.preview)} files!\n"
                             f"Skipped {skipped_count} files (already in correct location)"))
-                            
-        # Close the window after completion
+        
+        # Close the window after completion                    
         self.root.after(0, lambda: window.destroy())
         
-        # Clear the preview
+        # Clear the preview        
         self.preview = []
 
     def update_progress(self, value):
@@ -1059,7 +1050,7 @@ Troubleshooting:
         while os.path.exists(os.path.join(destination, new_filename)):
             new_filename = f"{base} ({counter}){ext}"
             counter += 1
-            
+        
         return new_filename
 
     def preview_by_type(self):
@@ -1138,7 +1129,6 @@ Troubleshooting:
         if self.include_subfolders.get():
             # First pass to count files
             self.update_processing_dialog("Counting files...", 0, 100)
-            
             total_files = 0
             for _, _, filenames in os.walk(folder):
                 total_files += len(filenames)
@@ -1146,7 +1136,7 @@ Troubleshooting:
                 # Check for cancel
                 if self.cancel_scan:
                     raise InterruptedError("File scanning was cancelled")
-                    
+                
                 # Give the UI a chance to update
                 if total_files % 1000 == 0:
                     self.update_processing_dialog(f"Counting files... {total_files} found", 0, 100)
@@ -1170,8 +1160,8 @@ Troubleshooting:
                     # Update progress periodically
                     if file_count % 100 == 0:
                         self.update_processing_dialog(f"Preparing file list... {file_count}/{total_files}", 
-                                                   file_count, total_files)
-                        
+                                   file_count, total_files)
+                    
                     # Check for cancel
                     if self.cancel_scan:
                         raise InterruptedError("File scanning was cancelled")
@@ -1186,7 +1176,7 @@ Troubleshooting:
                     # Update progress periodically
                     if file_count % 100 == 0:
                         self.update_processing_dialog(f"Preparing file list... {file_count}/{total_files}", 
-                                                   file_count, total_files)
+                                   file_count, total_files)
                     
                     # Check for cancel
                     if self.cancel_scan:
@@ -1376,7 +1366,7 @@ Troubleshooting:
                     dest_path = os.path.join(date_folder, os.path.basename(file_path))
                     preview.append((file_path, dest_path))
                 
-            # Final progress update
+            # Final progress update    
             self.update_processing_dialog("Finalizing preview...", total_files, total_files)
             
             if not preview:
@@ -1495,7 +1485,6 @@ Troubleshooting:
             
             # Show duplicate manager dialog with the results
             self.root.after(0, lambda d=duplicates: self.show_duplicate_manager(d))
-            
         except InterruptedError:
             self.log("Duplicate search was cancelled by user")
             self.close_processing_dialog()
@@ -1507,7 +1496,7 @@ Troubleshooting:
             self.close_processing_dialog()
             self.root.after(0, lambda: messagebox.showerror("Error", 
                                                         f"An error occurred while finding duplicates:\n\n{str(e)}"))
-    
+
     def _calculate_file_hash(self, file_path, block_size=65536):
         """Calculate MD5 hash for a file"""
         import hashlib
@@ -1595,8 +1584,8 @@ Troubleshooting:
                 # Initialize selection state if not already set
                 if file_path not in file_selections:
                     file_selections[file_path] = (i < len(sorted_files)-1)  # Select all except the oldest file
-                    
-                # Create a variable for the checkbox using the saved state
+                
+                # Create a variable for the checkbox using the saved state    
                 var = tk.BooleanVar(value=file_selections[file_path])
                 
                 # Track checkbox changes
@@ -1693,7 +1682,6 @@ Troubleshooting:
                     self.log(f"Deleted duplicate: {file_path}")
                 except Exception as e:
                     self.log(f"Error deleting {file_path}: {e}")
-            
             messagebox.showinfo("Deletion Complete", f"Successfully deleted {deleted_count} of {len(selected_files)} files.")
             
             # Update the display for the current group
@@ -1714,8 +1702,8 @@ Troubleshooting:
             else:
                 # Update the group with remaining files
                 duplicate_groups[current_group_idx[0]] = current_group
-                
-            # Update display
+            
+            # Update display        
             update_duplicate_display()
         
         # New function: Delete all selected from all groups (keeps the oldest file in each group)
@@ -1746,7 +1734,7 @@ Troubleshooting:
                         del file_selections[file_path]
                 except Exception as e:
                     self.log(f"Error deleting {file_path}: {e}")
-                    
+            
             # Update groups to remove deleted files
             for i in range(len(duplicate_groups)):
                 duplicate_groups[i] = [f for f in duplicate_groups[i] if os.path.exists(f)]
@@ -1766,8 +1754,8 @@ Troubleshooting:
             # Adjust current index if needed
             if current_group_idx[0] >= len(duplicate_groups):
                 current_group_idx[0] = len(duplicate_groups) - 1
-                
-            # Update display
+            
+            # Update display        
             update_duplicate_display()
         
         # Function to compare two images side by side
@@ -1778,13 +1766,13 @@ Troubleshooting:
                 return
             # Pass the entire group, current index, and a refresh callback
             self.compare_images(current_group, 1, update_duplicate_display)
-                
+        
         # Navigation functions
         def next_group():
             if current_group_idx[0] < len(duplicate_groups) - 1:
                 current_group_idx[0] += 1
                 update_duplicate_display()
-                
+        
         def prev_group():
             if current_group_idx[0] > 0:
                 current_group_idx[0] -= 1
@@ -1808,7 +1796,7 @@ Troubleshooting:
         tk.Button(button_frame, text="Compare Images", command=compare_selected).pack(side="left", padx=10) 
         tk.Button(button_frame, text="Close", command=dialog.destroy).pack(side="right", padx=10)
         
-        # Display the first group
+        # Display the first group        
         update_duplicate_display()
 
     def show_image_preview(self, image_path):
@@ -1850,7 +1838,6 @@ Troubleshooting:
                 new_width = int(img_width * scale_factor)
                 new_height = int(img_height * scale_factor)
                 image = image.resize((new_width, new_height), Image.LANCZOS)
-            
             photo = ImageTk.PhotoImage(image)
             
             # Create a label to display the image
@@ -1860,7 +1847,6 @@ Troubleshooting:
             
             # Add close button
             tk.Button(preview, text="Close", command=preview.destroy).pack(pady=10)
-            
         except Exception as e:
             self.log(f"Error previewing image: {e}")
             messagebox.showerror("Error", f"An error occurred while previewing the image:\n\n{e}")
@@ -1922,7 +1908,6 @@ Troubleshooting:
             
             # Try different date fields
             date_fields = ['DateTimeOriginal', 'DateTime', 'CreateDate', 'DateTimeDigitized']
-            
             for field in date_fields:
                 if (field in exif_data and exif_data[field]):
                     # Format usually like "2020:01:30 14:31:26"
@@ -1935,7 +1920,6 @@ Troubleshooting:
                             return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
                         except ValueError:
                             continue
-            
             return None
         except Exception as e:
             self.log(f"Error reading EXIF data from {file_path}: {e}")
@@ -1951,7 +1935,7 @@ Troubleshooting:
             if not os.path.isfile(file_path) or not os.access(file_path, os.R_OK):
                 self.log(f"File not accessible: {file_path}")
                 return None
-                
+            
             # Check file size - skip if too large (to avoid memory issues)
             try:
                 file_size = os.path.getsize(file_path)
@@ -1981,7 +1965,7 @@ Troubleshooting:
                 # Just read a small chunk to verify the file is readable
                 f.read(16)
                 
-            # Extract by hand to avoid PIL segfaults at shutdown
+            # Extract by hand to avoid PIL segfaults at shutdown    
             from PIL.ExifTags import GPSTAGS
             
             # Use a safer approach that minimizes image loading
@@ -2046,7 +2030,6 @@ Troubleshooting:
                     # Clean up references to prevent memory leaks
                     gps_info = None
                     gps_data = None
-                    
                     return result
                     
                 except Exception as e:
@@ -2056,8 +2039,6 @@ Troubleshooting:
         except Exception as e:
             self.log(f"Image loading error: {str(e)}")
             return None
-        
-        return None
     
     def _convert_gps_coords(self, coords):
         """Convert GPS coordinates safely with local variables"""
@@ -2105,7 +2086,6 @@ Troubleshooting:
             # Calculate and return decimal degrees
             decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
             return decimal
-            
         except Exception:
             return None
 
@@ -2146,12 +2126,12 @@ Troubleshooting:
                 error_message = f"Error moving {src}: {e}"
                 messagebox.showerror("Error", error_message)
                 self.log(f"ERROR: {error_message}")
-
+        
         # Delete empty folders if option is enabled
         if self.delete_empty_folders.get():
             self.log("Checking for empty folders to delete...")
             self.remove_empty_dirs(self.path.get())
-
+        
         message = f"Successfully organized {success_count} of {len(self.preview)} files! Skipped {skipped_count} files."
         messagebox.showinfo("Success", 
                            f"Successfully organized {success_count} of {len(self.preview)} files!\n"
@@ -2168,8 +2148,8 @@ Troubleshooting:
         for category, extensions in self.category_definitions.items():
             if extension in extensions:
                 return category
-                
-        # If we don't recognize the extension, return "Other"
+        
+        # If we don't recognize the extension, return "Other"            
         return "Other"
     
     def show_date_help(self):
@@ -2249,7 +2229,7 @@ the file's creation date.
         else:
             self.log("Delete empty folders option disabled")
         
-        # Save the config when this option changes
+        # Save the config when this option changes    
         self.save_config()
     
     def is_dir_empty(self, path):
@@ -2367,7 +2347,6 @@ the file's creation date.
         def cancel_processing():
             processing_cancelled[0] = True
             loading.destroy()
-            
         cancel_btn.config(command=cancel_processing)
         
         # Process files in a separate thread with segfault protection
@@ -2396,7 +2375,7 @@ the file's creation date.
             import traceback
             self.log(f"Error details: {traceback.format_exc()}")
             self.root.after(0, lambda: self.safe_destroy_window(loading))
-            self.root.after(0, lambda: messagebox.showerror("Error",
+            self.root.after(0, lambda: messagebox.showerror("Error", 
                                                           f"An error occurred while processing location data:\n\n{str(e)}"))
         finally:
             # Force garbage collection multiple times to ensure cleanup
@@ -2407,7 +2386,7 @@ the file's creation date.
             # Remove any reference to the thread
             if hasattr(self, 'location_thread'):
                 self.location_thread = None
-                
+            
             # Explicitly nullify variables that might have PIL references
             preview = None
             location_counts = None
@@ -2446,7 +2425,7 @@ the file's creation date.
                         "No image files found that might contain location data."))
                 return
                 
-            self.log(f"Found {len(image_files)} image files to process")
+            self.log(f"Found {len(image_files)} image files to process")    
             total_files = len(image_files)
             
             # Update progress settings
@@ -2460,7 +2439,7 @@ the file's creation date.
                     self.log("Location processing cancelled by user")
                     return
                     
-                batch_end = min(batch_start + batch_size, total_files)
+                batch_end = min(batch_start + batch_size, total_files)    
                 batch = image_files[batch_start:batch_end]
                 
                 # Process each file in the batch
@@ -2470,7 +2449,7 @@ the file's creation date.
                         import gc
                         gc.collect()
                         
-                    current_index = batch_start + i
+                    current_index = batch_start + i    
                     file_basename = os.path.basename(file_path)
                     
                     # Update progress more frequently
@@ -2491,7 +2470,7 @@ the file's creation date.
                                 continue
                         except:
                             pass
-                            
+                        
                         gps_data = self.get_gps_data(file_path)
                         
                         # Add very small sleep to prevent UI lockups
@@ -2519,7 +2498,6 @@ the file's creation date.
                             if safe_location not in location_counts:
                                 location_counts[safe_location] = 0
                             location_counts[safe_location] += 1
-                            
                             files_with_location += 1
                         else:
                             # For files without location data
@@ -2531,12 +2509,11 @@ the file's creation date.
                         error_count += 1
                         self.log(f"Error processing {file_basename}: {str(e)}")
                 
-                # Sleep briefly between batches to allow UI updates
+                # Sleep briefly between batches to allow UI updates    
                 time.sleep(0.1)
             
             # Show results
             self.root.after(0, lambda: self.safe_destroy_window(loading))
-            
             if processing_cancelled[0]:
                 return
                 
@@ -2573,7 +2550,7 @@ the file's creation date.
         if not hasattr(self, 'location_granularity'):
             self.location_granularity = tk.StringVar()
             self.location_granularity.set("city")
-            
+        
         # Create dialog
         dialog = Toplevel(self.root)
         dialog.title("Location Organization Settings")
@@ -2603,11 +2580,11 @@ the file's creation date.
         tk.Radiobutton(options_frame, text="By Country", 
                      variable=self.location_granularity, 
                      value="country").pack(anchor="w", pady=3)
-                     
+        
         tk.Radiobutton(options_frame, text="By City/Region (Recommended)", 
                      variable=self.location_granularity, 
                      value="city").pack(anchor="w", pady=3)
-                     
+        
         tk.Radiobutton(options_frame, text="By Exact Coordinates", 
                      variable=self.location_granularity, 
                      value="exact").pack(anchor="w", pady=3)
@@ -2619,7 +2596,6 @@ the file's creation date.
         info_text = "This feature organizes photos based on GPS coordinates in their metadata.\n" + \
                    "Internet connection is required for reverse geocoding.\n" + \
                    "Photos without GPS data will be placed in an 'Unknown Location' folder."
-                   
         tk.Label(info_frame, text=info_text, justify="left", 
                wraplength=350).pack(anchor="w")
         
@@ -2657,7 +2633,6 @@ the file's creation date.
         """Get location name from GPS coordinates using reverse geocoding"""
         if not gps_data or gps_data['latitude'] == 0 and gps_data['longitude'] == 0:
             return "Unknown Location"
-            
         try:
             import requests
             lat = gps_data['latitude']
@@ -2671,12 +2646,10 @@ the file's creation date.
             zoom_level = {"country": 3, "city": 10, "exact": 18}.get(granularity, 10)
             url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom={zoom_level}"
             headers = {"User-Agent": "FileOrganizer/1.0"}
-            
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
                 self.log(f"Geocoding API error {response.status_code}: {response.text}")
                 return f"GPS({lat:.4f},{lon:.4f})"
-                
             data = response.json()
             
             # Extract location based on granularity
@@ -2686,7 +2659,6 @@ the file's creation date.
                     location_name = data["address"]["country"]
                 else:
                     location_name = "Unknown Country"
-            
             elif granularity == "city":
                 address = data.get("address", {})
                 # Try different fields for city/region name in priority order
@@ -2706,11 +2678,10 @@ the file's creation date.
                         location_name = f"{parts[0].strip()}, {parts[-1].strip()}"
                     else:
                         location_name = data["display_name"]
-                    
+                
                 # Last resort - use coordinates
                 if not location_name:
                     location_name = f"GPS({lat:.4f},{lon:.4f})"
-            
             else:  # exact - use precise coordinates
                 location_name = f"GPS({lat:.4f},{lon:.4f})"
             
@@ -2721,7 +2692,6 @@ the file's creation date.
             # If filtering removed all characters, use GPS coordinates
             if not filtered_name or filtered_name.isspace():
                 filtered_name = f"GPS({lat:.4f},{lon:.4f})"
-                
             self.log(f"Location: {filtered_name}")
             return filtered_name
                 
@@ -2857,7 +2827,6 @@ to strip location data from photos before sharing them online.
                 left_img_label.image = photo1
                 left_header.config(text=os.path.basename(group[0]))
                 left_size.config(text=f"Size: {self.format_size(os.path.getsize(group[0]))}")
-
                 # Right image is the current comparison file
                 img2 = Image.open(group[current_index])
                 img2.thumbnail((600, 600), Image.LANCZOS)  # Increased from 550x550 to 600x600
@@ -2866,7 +2835,6 @@ to strip location data from photos before sharing them online.
                 right_img_label.image = photo2
                 right_header.config(text=os.path.basename(group[current_index]))
                 right_size.config(text=f"Size: {self.format_size(os.path.getsize(group[current_index]))}")
-
                 # Update navigation button states
                 prev_btn.config(state="normal" if current_index > 1 else "disabled")
                 next_btn.config(state="normal" if current_index < len(group) - 1 else "disabled")
@@ -2881,14 +2849,14 @@ to strip location data from photos before sharing them online.
         left_size.pack()
         left_img_label = tk.Label(left_frame)
         left_img_label.pack(fill="both", expand=True, padx=10, pady=10)
-
+        
         right_header = tk.Label(right_frame, font=("Arial", 10, "bold"))
         right_header.pack(pady=(5, 2))
         right_size = tk.Label(right_frame, font=("Arial", 9))
         right_size.pack()
         right_img_label = tk.Label(right_frame)
         right_img_label.pack(fill="both", expand=True, padx=10, pady=10)
-
+        
         # Navigation buttons
         nav_frame = tk.Frame(right_frame)
         nav_frame.pack(pady=10)
@@ -2929,6 +2897,7 @@ to strip location data from photos before sharing them online.
         prev_btn.pack(side="left", padx=5)
         next_btn = tk.Button(nav_frame, text="Next →", command=next_image)
         next_btn.pack(side="left", padx=5)
+        
         # Fixed button creation by adding proper parent and removing incorrect side parameter
         delete_btn = tk.Button(nav_frame, text="Delete Right Image", command=on_delete_right, 
                               bg="#f44336", fg="white")
@@ -2940,7 +2909,7 @@ to strip location data from photos before sharing them online.
         
         tk.Button(action_frame, text="Close", command=compare_window.destroy, 
                   width=20, height=2).pack(side="right", padx=30)
-
+        
         # Initial display
         update_display()
 
@@ -2950,6 +2919,177 @@ to strip location data from photos before sharing them online.
         for child in widget.winfo_children():
             children.extend(self.get_all_children(child))
         return children
+
+    def preview_by_resolution(self):
+        """Preview organizing images by their resolution"""
+        folder = self.path.get()
+        if not folder:
+            messagebox.showerror("Error", "Please select a folder first!")
+            return
+
+        # Check if PIL is installed as it's required for this feature
+        if not HAS_PIL:
+            messagebox.showwarning("Missing Dependency", 
+                                  "Pillow (PIL) is required for resolution-based organization.\n\n"
+                                  "Please install it with: pip install pillow")
+            self.log("WARNING: PIL not installed, cannot analyze image resolutions")
+            return
+
+        self.log(f"Generating preview for organizing images by resolution in {folder}")
+        
+        # Create and show progress window
+        self.show_processing_dialog("Scanning Images", "Analyzing image resolutions...")
+        
+        # Run the actual work in a thread to keep UI responsive
+        threading.Thread(
+            target=self._generate_preview_by_resolution,
+            args=(folder,),
+            daemon=True
+        ).start()
+
+    def _generate_preview_by_resolution(self, folder):
+        """Generate preview by image resolution in a background thread"""
+        try:
+            preview = []
+            # Count files in each category for logging
+            resolution_counts = {}
+            
+            # Get all files
+            files = self.get_files_with_progress(folder)
+            
+            total_files = len(files)
+            self.update_processing_dialog(f"Processing {total_files} files...", 0, total_files)
+            
+            # Keep track of image files and other files separately
+            image_files = []
+            other_files = []
+            
+            # First pass - identify image files
+            for i, file_path in enumerate(files):
+                # Update progress occasionally
+                if i % 50 == 0:
+                    self.update_processing_dialog(f"Identifying image files... ({i}/{total_files})", i, total_files)
+                    
+                # Check for cancel
+                if self.cancel_scan:
+                    raise InterruptedError("Resolution analysis was cancelled")
+                    
+                if os.path.isfile(file_path):
+                    ext = os.path.splitext(file_path)[1].lower()
+                    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']:
+                        image_files.append(file_path)
+                    else:
+                        other_files.append(file_path)
+            
+            # Process image files to analyze resolution
+            img_count = len(image_files)
+            for i, file_path in enumerate(image_files):
+                # Update progress
+                if i % 10 == 0:
+                    self.update_processing_dialog(f"Analyzing image resolution... ({i}/{img_count})", i, img_count)
+                    
+                # Check for cancel
+                if self.cancel_scan:
+                    raise InterruptedError("Resolution analysis was cancelled")
+                    
+                try:
+                    # Get image resolution
+                    resolution_category = self.get_image_resolution_category(file_path)
+                    
+                    # Keep track of how many files in each category
+                    if resolution_category not in resolution_counts:
+                        resolution_counts[resolution_category] = 0
+                    resolution_counts[resolution_category] += 1
+                    
+                    # Create destination path
+                    resolution_folder = os.path.join(folder, "By Resolution", resolution_category)
+                    dest_path = os.path.join(resolution_folder, os.path.basename(file_path))
+                    preview.append((file_path, dest_path))
+                    
+                except Exception as e:
+                    self.log(f"Error analyzing {os.path.basename(file_path)}: {str(e)}")
+                    # Place files with errors in "Unknown Resolution" category
+                    resolution_folder = os.path.join(folder, "By Resolution", "Unknown Resolution")
+                    dest_path = os.path.join(resolution_folder, os.path.basename(file_path))
+                    preview.append((file_path, dest_path))
+            
+            # Put non-image files in "Other Files" category
+            for file_path in other_files:
+                resolution_folder = os.path.join(folder, "By Resolution", "Other Files")
+                dest_path = os.path.join(resolution_folder, os.path.basename(file_path))
+                preview.append((file_path, dest_path))
+                
+            if "Other Files" not in resolution_counts:
+                resolution_counts["Other Files"] = 0
+            resolution_counts["Other Files"] += len(other_files)
+            
+            # Final progress update
+            self.update_processing_dialog("Finalizing preview...", total_files, total_files)
+            
+            if not preview:
+                self.close_processing_dialog()
+                message = "No files found to organize!"
+                self.root.after(0, lambda: messagebox.showinfo("No Files", message))
+                self.log(message)
+                return
+            
+            # Log the resolution distribution
+            self.log("Files by resolution:")
+            for category, count in resolution_counts.items():
+                self.log(f"  {category}: {count} files")
+            
+            # Show preview window on main thread
+            self.root.after(0, lambda p=list(preview): self.show_preview(p))
+            message = f"Preview ready: {len(preview)} files to organize by resolution"
+            self.root.after(0, lambda: self.status_label.config(text=message))
+            self.log(message)
+            
+            # Close progress dialog
+            self.close_processing_dialog()
+            
+        except InterruptedError:
+            self.log("Resolution analysis was cancelled by user")
+            self.close_processing_dialog()
+            
+        except Exception as e:
+            self.log(f"Error generating preview: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            self.close_processing_dialog()
+            self.root.after(0, lambda: messagebox.showerror("Error", 
+                                                        f"An error occurred while generating preview:\n\n{str(e)}"))
+
+    def get_image_resolution_category(self, file_path):
+        """Categorize an image based on its resolution
+        
+        Categories:
+        - Social Media (small, typically below 1MP)
+        - Low Resolution (1-2MP)
+        - Standard Resolution (2-5MP)
+        - High Resolution (5-10MP)
+        - Ultra High Resolution (above 10MP)
+        """
+        try:
+            with Image.open(file_path) as img:
+                width, height = img.size
+                megapixels = (width * height) / 1000000.0  # Convert to megapixels
+                
+                if megapixels < 1.0:
+                    if max(width, height) <= 800:  # Typical social media image size
+                        return "Social Media"
+                    else:
+                        return "Low Resolution"
+                elif megapixels < 2.0:
+                    return "Low Resolution"
+                elif megapixels < 5.0:
+                    return "Standard Resolution"
+                elif megapixels < 10.0:
+                    return "High Resolution"
+                else:
+                    return "Ultra High Resolution"
+        except Exception as e:
+            self.log(f"Error analyzing resolution of {os.path.basename(file_path)}: {e}")
+            return "Unknown Resolution"
 
 if __name__ == '__main__':
     root = tk.Tk()
