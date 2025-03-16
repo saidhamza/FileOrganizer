@@ -71,6 +71,32 @@ def main():
     if os.path.exists(icon_path):
         pyinstaller_cmd.append(f"--icon={icon_path}")
     
+    # Fix for PIL/_tkinter_finder issue
+    if has_pillow:
+        # Add necessary hidden imports for PIL
+        pyinstaller_cmd.extend([
+            "--hidden-import=PIL._tkinter_finder",
+            "--hidden-import=PIL._imagingtk",
+            "--hidden-import=PIL._imaging",
+            "--hidden-import=PIL.ImageTk",
+            "--hidden-import=PIL.Image",
+            "--hidden-import=PIL.ExifTags",
+        ])
+        
+        # Add collect-all for PIL to ensure all submodules are included
+        pyinstaller_cmd.append("--collect-all=PIL")
+    
+    # Add hidden imports for requests if installed
+    if has_requests:
+        pyinstaller_cmd.extend([
+            "--hidden-import=requests",
+            "--hidden-import=urllib3",
+        ])
+    
+    # Additional platform-specific options
+    if platform.system() == "Linux":
+        pyinstaller_cmd.append("--hidden-import=PIL._tkinter_finder")
+    
     # Add the main script
     pyinstaller_cmd.append("file_organizer.py")
     
@@ -99,6 +125,9 @@ def main():
             print(f"\nDesktop file created: {desktop_file}")
             print("To install the desktop entry system-wide, copy it to /usr/share/applications/")
             print("For personal use, copy it to ~/.local/share/applications/")
+    else:
+        print(f"\nWarning: Executable not found at expected path: {executable_path}")
+        print("Please check the PyInstaller output for errors.")
 
 def create_desktop_file(executable_path):
     """Create a desktop entry file for Linux"""
