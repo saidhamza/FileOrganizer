@@ -1487,7 +1487,10 @@ Troubleshooting:
             return None
     
     def show_duplicate_manager(self, duplicates):
-        """Show a dialog to manage duplicate files"""
+        """Show a dialog to manage duplicate files with image thumbnails"""
+        # Initialize thumbnail storage
+        self.duplicate_thumbnails = {}  # New line
+
         # Create the dialog
         dialog = Toplevel(self.root)
         dialog.title("Duplicate File Manager")
@@ -1561,24 +1564,22 @@ Troubleshooting:
                 check.file_path = file_path
                 check.select_var = var
                 
+                # New: if file is an image and PIL is available, add a thumbnail
+                if HAS_PIL and file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp')):
+                    try:
+                        image = Image.open(file_path)
+                        # Increase thumbnail size for better preview
+                        image.thumbnail((100,100), Image.LANCZOS)
+                        photo = ImageTk.PhotoImage(image)
+                        self.duplicate_thumbnails[file_path] = photo  # Store reference
+                        thumb_label = tk.Label(top_row, image=photo)
+                        thumb_label.pack(side="left", padx=5)
+                    except Exception as e:
+                        self.log(f"Error creating thumbnail for {file_path}: {e}")
+                
                 # File information
                 file_name = os.path.basename(file_path)
                 file_size = os.path.getsize(file_path)
-                file_date = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M:%S")
-                
-                info_text = f"Name: {file_name}\nPath: {file_path}\nSize: {self.format_size(file_size)}\nModified: {file_date}"
-                info_label = tk.Label(top_row, text=info_text, anchor="w", justify="left")
-                info_label.pack(side="left", padx=10, fill="x", expand=True)
-                
-                # Add preview button if it's an image
-                if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp')):
-                    preview_btn = tk.Button(
-                        top_row, 
-                        text="Preview", 
-                        command=lambda fp=file_path: self.show_image_preview(fp)
-                    )
-                    preview_btn.pack(side="right", padx=5)
-        
         # Navigation functions
         def next_group():
             if current_group_idx[0] < len(duplicate_groups) - 1:
@@ -1600,7 +1601,7 @@ Troubleshooting:
         # Function to delete selected files
         def delete_selected():
             # Get all checkbuttons in the content frame
-            checkbuttons = [w for w in content_frame.winfo_descendants() if isinstance(w, tk.Checkbutton)]
+            checkbuttons = [w for w in self.get_all_children(content_frame) if isinstance(w, tk.Checkbutton)]
             
             # Find selected files
             selected_files = [cb.file_path for cb in checkbuttons if hasattr(cb, 'select_var') and cb.select_var.get()]
@@ -1652,7 +1653,7 @@ Troubleshooting:
         # Function to compare two images side by side
         def compare_selected():
             # Get all checkbuttons in the content frame
-            checkbuttons = [w for w in content_frame.winfo_descendants() if isinstance(w, tk.Checkbutton)]
+            checkbuttons = [w for w in self.get_all_children(content_frame) if isinstance(w, tk.Checkbutton)]
             
             # Find selected files
             selected_files = [cb.file_path for cb in checkbuttons if hasattr(cb, 'select_var') and cb.select_var.get()]
@@ -2789,6 +2790,13 @@ to strip location data from photos before sharing them online.
         except Exception as e:
             self.log(f"Error during keep/delete operation: {e}")
             messagebox.showerror("Error", f"Could not complete the operation: {str(e)}")
+
+    def get_all_children(self, widget):
+        """Recursively get all descendant widgets"""
+        children = widget.winfo_children()
+        for child in widget.winfo_children():
+            children.extend(self.get_all_children(child))
+        return children
 
 if __name__ == '__main__':
     root = tk.Tk()
