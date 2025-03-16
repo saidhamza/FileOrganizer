@@ -1574,6 +1574,8 @@ Troubleshooting:
                         self.duplicate_thumbnails[file_path] = photo  # Store reference
                         thumb_label = tk.Label(top_row, image=photo)
                         thumb_label.pack(side="left", padx=5)
+                        # Add click event binding to show full image preview when thumbnail is clicked
+                        thumb_label.bind("<Button-1>", lambda e, filepath=file_path: self.show_image_preview(filepath))
                         # New: add file name label next to thumbnail
                         tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
                     except Exception as e:
@@ -1696,6 +1698,25 @@ Troubleshooting:
             
             # Load the image
             image = Image.open(image_path)
+            
+            # Calculate dimensions to fit in window while preserving aspect ratio
+            max_width = 750  # Leave some margin for the window border
+            max_height = 520  # Leave space for the close button and margins
+            
+            # Get original image dimensions
+            img_width, img_height = image.size
+            
+            # Calculate scaling factor to fit within window
+            width_ratio = max_width / img_width
+            height_ratio = max_height / img_height
+            scale_factor = min(width_ratio, height_ratio)
+            
+            # Resize if image is larger than the available space
+            if scale_factor < 1:
+                new_width = int(img_width * scale_factor)
+                new_height = int(img_height * scale_factor)
+                image = image.resize((new_width, new_height), Image.LANCZOS)
+            
             photo = ImageTk.PhotoImage(image)
             
             # Create a label to display the image
@@ -2739,23 +2760,20 @@ to strip location data from photos before sharing them online.
         nav_frame.pack(pady=10)
 
         def prev_image():
+            nonlocal current_index  # Add nonlocal declaration
             if current_index > 1:
                 current_index -= 1
                 update_display()
 
         def next_image():
+            nonlocal current_index  # Add nonlocal declaration
             if current_index < len(group) - 1:
                 current_index += 1
                 update_display()
 
-        prev_btn = tk.Button(nav_frame, text="← Previous", command=prev_image)
-        prev_btn.pack(side="left", padx=5)
-        next_btn = tk.Button(nav_frame, text="Next →", command=next_image)
-        next_btn.pack(side="left", padx=5)
-
-        # Action buttons
+        # Define on_delete_right function before using it
         def on_delete_right():
-            nonlocal current_index  # Move nonlocal declaration to start of function
+            nonlocal current_index
             try:
                 if messagebox.askyesno("Confirm Deletion",
                                    f"Delete '{os.path.basename(group[current_index])}'?"):
@@ -2773,12 +2791,21 @@ to strip location data from photos before sharing them online.
                 self.log(f"Error deleting image: {e}")
                 messagebox.showerror("Error", f"Could not delete the image: {str(e)}")
 
+        prev_btn = tk.Button(nav_frame, text="← Previous", command=prev_image)
+        prev_btn.pack(side="left", padx=5)
+        next_btn = tk.Button(nav_frame, text="Next →", command=next_image)
+        next_btn.pack(side="left", padx=5)
+        # Fixed button creation by adding proper parent and removing incorrect side parameter
+        delete_btn = tk.Button(nav_frame, text="Delete Right Image", command=on_delete_right, 
+                              bg="#f44336", fg="white")
+        delete_btn.pack(side="left", padx=15)
+
+        # Action frame now only has the close button
         action_frame = tk.Frame(compare_window)
-        action_frame.pack(pady=30)  # Increased padding from 20 to 30
-        tk.Button(action_frame, text="Delete Right Image", command=on_delete_right, 
-                  bg="#f44336", fg="white", width=25, height=2).pack(side="left", padx=30)  # Made button larger
+        action_frame.pack(pady=30)
+        
         tk.Button(action_frame, text="Close", command=compare_window.destroy, 
-                  width=20, height=2).pack(side="right", padx=30)  # Made button larger
+                  width=20, height=2).pack(side="right", padx=30)
 
         # Initial display
         update_display()
