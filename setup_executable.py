@@ -64,6 +64,7 @@ def main():
         "--windowed",                      # Hide the console window on Windows
         "--add-data=LICENSE:.",            # Include LICENSE file
         "--add-data=README.md:.",          # Include README file
+        "--add-data=file_organizer_config.json:.",  # Added to copy config file
     ]
     
     # Add icon if available

@@ -23,15 +23,38 @@ except ImportError:
     HAS_PIL = False
 
 class ToolTip:
-    """Create a tooltip for a given widget"""
+    """Create a tooltip for a given widget with improved show/hide behavior"""
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
         self.tooltip = None
-        self.widget.bind("<Enter>", self.show_tooltip)
-        self.widget.bind("<Leave>", self.hide_tooltip)
+        self.id = None  # For tracking show delay
+        self.widget.bind("<Enter>", self.on_enter)
+        self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<ButtonPress>", self.on_leave)  # Hide on button press
+    
+    def on_enter(self, event=None):
+        """Start countdown to show tooltip"""
+        self.cancel_id()  # Cancel any existing timer
+        # Schedule showing the tooltip after a short delay (500ms)
+        self.id = self.widget.after(500, self.show_tooltip)
+    
+    def on_leave(self, event=None):
+        """Cancel showing tooltip and hide if visible"""
+        self.cancel_id()  # Cancel scheduled showing
+        self.hide_tooltip()
+    
+    def cancel_id(self):
+        """Cancel any scheduled tooltip display"""
+        if self.id:
+            self.widget.after_cancel(self.id)
+            self.id = None
 
-    def show_tooltip(self, event=None):
+    def show_tooltip(self):
+        """Display the tooltip"""
+        # Make sure any existing tooltip is destroyed first
+        self.hide_tooltip()
+        
         x, y, _, _ = self.widget.bbox("insert")
         x += self.widget.winfo_rootx() + 25
         y += self.widget.winfo_rooty() + 25
@@ -42,13 +65,24 @@ class ToolTip:
         self.tooltip.wm_overrideredirect(True)
         self.tooltip.wm_geometry(f"+{x}+{y}")
         
+        # Add extra wm attributes for better behavior
+        self.tooltip.attributes("-topmost", True)
+        
         label = tk.Label(self.tooltip, text=self.text, background="#FFFFDD",
                      wraplength=250, font=("tahoma", 9), padx=5, pady=3)
         label.pack()
         
+        # Additional bindings to ensure tooltip gets destroyed
+        self.tooltip.bind("<Leave>", self.hide_tooltip)
+        
     def hide_tooltip(self, event=None):
+        """Destroy the tooltip window"""
         if self.tooltip:
-            self.tooltip.destroy()
+            try:
+                self.tooltip.destroy()
+            except tk.TclError:
+                # Window might already be destroyed
+                pass
             self.tooltip = None
 
 class FileOrganizerApp:
@@ -65,8 +99,8 @@ class FileOrganizerApp:
         # Load config
         self.config = self.load_config()
         
-        # File category definitions - moved here before UI initialization
-        self.category_definitions = {
+        # File category definitions - load from config or use defaults
+        default_categories = {
             "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg", ".heic"],
             "Documents": [".doc", ".docx", ".pdf", ".txt", ".rtf", ".odt", ".xls", ".xlsx", ".ppt", ".pptx", ".csv"],
             "Videos": [".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".mts", ".m2ts", ".3gp"],
@@ -75,6 +109,7 @@ class FileOrganizerApp:
             "Code": [".py", ".js", ".html", ".css", ".java", ".c", ".cpp", ".php", ".rb", ".go", ".rs", ".ts", ".sh", ".json", ".xml"],
             "Executables": [".exe", ".msi", ".app", ".bat", ".sh", ".apk", ".deb", ".rpm"]
         }
+        self.category_definitions = self.config.get("category_definitions", default_categories)
         
         # Add location grouping options
         self.location_granularity = tk.StringVar()
@@ -1544,13 +1579,18 @@ Troubleshooting:
                 text=f"Duplicate Group: {current_group_idx[0] + 1}/{len(duplicate_groups)}"
             )
             
+            # Sort the group by creation date (newest first)
+            sorted_files = sorted(current_group, 
+                                  key=lambda f: self.get_file_creation_date(f),
+                                  reverse=True)
+            
             # Create a frame for each file in the group
-            for i, file_path in enumerate(current_group):
+            for i, file_path in enumerate(sorted_files):
                 file_frame = tk.Frame(content_frame, borderwidth=1, relief="groove")
                 file_frame.pack(fill="x", pady=5)
                 
-                # Create a variable for the checkbox
-                var = tk.BooleanVar(value=i > 0)  # Select all except the first file
+                # Create a variable for the checkbox - select newer files (but not the oldest)
+                var = tk.BooleanVar(value=(i < len(sorted_files)-1))  # Select all except the last (oldest) file
                 
                 # Top row with checkbox and file info
                 top_row = tk.Frame(file_frame)
@@ -1577,35 +1617,45 @@ Troubleshooting:
                         # Add click event binding to show full image preview when thumbnail is clicked
                         thumb_label.bind("<Button-1>", lambda e, filepath=file_path: self.show_image_preview(filepath))
                         # New: add file name label next to thumbnail
-                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
+                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10, "bold")).pack(side="left", padx=5)
                     except Exception as e:
                         self.log(f"Error creating thumbnail for {file_path}: {e}")
-                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
+                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10, "bold")).pack(side="left", padx=5)
                 else:
-                    tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
+                    tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10, "bold")).pack(side="left", padx=5)
                 
-                # File information
-                file_name = os.path.basename(file_path)
-                file_size = os.path.getsize(file_path)
-        # Navigation functions
-        def next_group():
-            if current_group_idx[0] < len(duplicate_groups) - 1:
-                current_group_idx[0] += 1
-                update_duplicate_display()
+                # Add file information in a separate row
+                info_row = tk.Frame(file_frame)
+                info_row.pack(fill="x", padx=5, pady=5)
+
+                # Indent the info row with a spacer
+                tk.Frame(info_row, width=20).pack(side="left")
                 
-        def prev_group():
-            if current_group_idx[0] > 0:
-                current_group_idx[0] -= 1
-                update_duplicate_display()
+                # Format creation date
+                try:
+                    create_date = self.get_file_creation_date(file_path)
+                    date_str = create_date.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception as e:
+                    date_str = "Unknown date"
+                
+                # Format file size
+                try:
+                    size = os.path.getsize(file_path)
+                    size_str = self.format_size(size)
+                except Exception:
+                    size_str = "Unknown size"
+                
+                # Display file info
+                info_text = f"Date: {date_str} | Size: {size_str} | Path: {os.path.dirname(file_path)}"
+                tk.Label(info_row, text=info_text, font=("Arial", 8), fg="#555555").pack(anchor="w")
+                
+                # After updating the display, enable delete all button if the current group is the last one
+                if "delete_all_button" in locals() and current_group_idx[0] == len(duplicate_groups) - 1:
+                    delete_all_button.config(state="normal")
+                elif "delete_all_button" in locals():
+                    delete_all_button.config(state="disabled")
         
-        # Add navigation buttons
-        nav_frame = tk.Frame(control_frame)
-        nav_frame.pack(side="right")
-        
-        tk.Button(nav_frame, text="< Previous", command=prev_group).pack(side="left", padx=5)
-        tk.Button(nav_frame, text="Next >", command=next_group).pack(side="left", padx=5)
-        
-        # Function to delete selected files
+        # Function to delete selected files - DEFINE THIS FUNCTION FIRST!
         def delete_selected():
             # Get all checkbuttons in the content frame
             checkbuttons = [w for w in self.get_all_children(content_frame) if isinstance(w, tk.Checkbutton)]
@@ -1656,7 +1706,24 @@ Troubleshooting:
                 
             # Update display
             update_duplicate_display()
-            
+        
+        # New function: Delete all selected from all groups (keeps the oldest file in each group)
+        def delete_all_selected_global():
+            total_deleted = 0
+            for grp in duplicate_groups[:]:
+                # Sort files so the oldest (to keep) is last
+                sorted_files = sorted(grp, key=lambda f: self.get_file_creation_date(f))
+                for file in sorted_files[:-1]:
+                    try:
+                        os.remove(file)
+                        total_deleted += 1
+                        self.log(f"Deleted duplicate: {file}")
+                    except Exception as e:
+                        self.log(f"Error deleting {file}: {e}")
+                duplicate_groups.remove(grp)
+            messagebox.showinfo("Deletion Complete", f"Deleted a total of {total_deleted} duplicate files.")
+            dialog.destroy()
+        
         # Function to compare two images side by side
         def compare_selected():
             current_group = duplicate_groups[current_group_idx[0]]
@@ -1665,18 +1732,39 @@ Troubleshooting:
                 return
             # Pass the entire group, current index, and a refresh callback
             self.compare_images(current_group, 1, update_duplicate_display)
-        
-        # Add action buttons
-        tk.Button(button_frame, text="Delete Selected", command=delete_selected,
-                bg="#f44336", fg="white").pack(side="left", padx=10)
                 
-        tk.Button(button_frame, text="Compare Images", command=compare_selected).pack(side="left", padx=10)
+        # Navigation functions
+        def next_group():
+            if current_group_idx[0] < len(duplicate_groups) - 1:
+                current_group_idx[0] += 1
+                update_duplicate_display()
+                
+        def prev_group():
+            if current_group_idx[0] > 0:
+                current_group_idx[0] -= 1
+                update_duplicate_display()
         
+        # Add navigation buttons
+        nav_frame = tk.Frame(control_frame)
+        nav_frame.pack(side="right")
+        
+        tk.Button(nav_frame, text="< Previous", command=prev_group).pack(side="left", padx=5)
+        tk.Button(nav_frame, text="Next >", command=next_group).pack(side="left", padx=5)
+        
+        # New button added; initially disabled.
+        delete_all_button = tk.Button(button_frame, text="Delete All Selected", 
+                                       command=delete_all_selected_global, state="disabled")
+        delete_all_button.pack(side="left", padx=10)
+        
+        # Create action buttons - now using our properly defined functions
+        tk.Button(button_frame, text="Delete Selected", command=delete_selected,
+                bg="#f44336", fg="white").pack(side="left", padx=10)            
+        tk.Button(button_frame, text="Compare Images", command=compare_selected).pack(side="left", padx=10) 
         tk.Button(button_frame, text="Close", command=dialog.destroy).pack(side="right", padx=10)
         
         # Display the first group
         update_duplicate_display()
-    
+
     def show_image_preview(self, image_path):
         """Show a preview of an image"""
         if not HAS_PIL:
