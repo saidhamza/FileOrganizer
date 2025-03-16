@@ -1574,8 +1574,13 @@ Troubleshooting:
                         self.duplicate_thumbnails[file_path] = photo  # Store reference
                         thumb_label = tk.Label(top_row, image=photo)
                         thumb_label.pack(side="left", padx=5)
+                        # New: add file name label next to thumbnail
+                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
                     except Exception as e:
                         self.log(f"Error creating thumbnail for {file_path}: {e}")
+                        tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
+                else:
+                    tk.Label(top_row, text=os.path.basename(file_path), font=("Arial", 10)).pack(side="left", padx=5)
                 
                 # File information
                 file_name = os.path.basename(file_path)
@@ -1652,24 +1657,18 @@ Troubleshooting:
             
         # Function to compare two images side by side
         def compare_selected():
-            # Get all checkbuttons in the content frame
-            checkbuttons = [w for w in self.get_all_children(content_frame) if isinstance(w, tk.Checkbutton)]
-            
-            # Find selected files
-            selected_files = [cb.file_path for cb in checkbuttons if hasattr(cb, 'select_var') and cb.select_var.get()]
-            
-            if len(selected_files) != 2:
-                messagebox.showinfo("Selection Error", "Please select exactly 2 files to compare.")
+            current_group = duplicate_groups[current_group_idx[0]]
+            if len(current_group) < 2:
+                messagebox.showinfo("Selection Error", "Need at least two files to compare.")
                 return
-                
-            # Show comparison dialog
-            self.compare_images(selected_files[0], selected_files[1])
+            # Pass the entire group, current index, and a refresh callback
+            self.compare_images(current_group, 1, update_duplicate_display)
         
         # Add action buttons
         tk.Button(button_frame, text="Delete Selected", command=delete_selected,
                 bg="#f44336", fg="white").pack(side="left", padx=10)
                 
-        tk.Button(button_frame, text="Compare Selected", command=compare_selected).pack(side="left", padx=10)
+        tk.Button(button_frame, text="Compare Images", command=compare_selected).pack(side="left", padx=10)
         
         tk.Button(button_frame, text="Close", command=dialog.destroy).pack(side="right", padx=10)
         
@@ -2677,119 +2676,112 @@ to strip location data from photos before sharing them online.
         close_button = tk.Button(help_window, text="Close", command=help_window.destroy)
         close_button.pack(pady=10)
 
-    def compare_images(self, image1_path, image2_path):
-        """Show side-by-side comparison of two images"""
+    def compare_images(self, group, current_index, refresh_callback):
         if not HAS_PIL:
             messagebox.showinfo("Missing Dependency", "Pillow (PIL) is required for image comparison.")
             return
-            
-        try:
-            from PIL import ImageTk
-            
-            # Create the comparison window
-            compare_window = Toplevel(self.root)
-            compare_window.title("Image Comparison")
-            compare_window.geometry("1000x600")
-            compare_window.transient(self.root)
-            
-            # Create a frame for each image
-            left_frame = tk.Frame(compare_window, bd=1, relief="groove")
-            left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-            
-            right_frame = tk.Frame(compare_window, bd=1, relief="groove")
-            right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
-            
-            # Load images
-            img1 = Image.open(image1_path)
-            img2 = Image.open(image2_path)
-            
-            # Get image info
-            img1_size = os.path.getsize(image1_path)
-            img2_size = os.path.getsize(image2_path)
-            
-            img1_date = datetime.fromtimestamp(os.path.getmtime(image1_path)).strftime("%Y-%m-%d %H:%M:%S")
-            img2_date = datetime.fromtimestamp(os.path.getmtime(image2_path)).strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Resize images for display if they're too big
-            max_size = (450, 450)  # Max dimensions for the image preview
-            img1.thumbnail(max_size, Image.LANCZOS)
-            img2.thumbnail(max_size, Image.LANCZOS)
-            
-            # Convert to PhotoImage for Tkinter
-            photo1 = ImageTk.PhotoImage(img1)
-            photo2 = ImageTk.PhotoImage(img2)
-            
-            # Image headers with file info
-            tk.Label(left_frame, text=os.path.basename(image1_path), font=("Arial", 10, "bold")).pack(pady=(5, 2))
-            tk.Label(left_frame, text=f"Size: {self.format_size(img1_size)} • Modified: {img1_date}").pack(pady=(0, 5))
-            
-            tk.Label(right_frame, text=os.path.basename(image2_path), font=("Arial", 10, "bold")).pack(pady=(5, 2))
-            tk.Label(right_frame, text=f"Size: {self.format_size(img2_size)} • Modified: {img2_date}").pack(pady=(0, 5))
-            
-            # Display images
-            left_img_label = tk.Label(left_frame, image=photo1)
-            left_img_label.image = photo1  # Keep a reference to prevent garbage collection
-            left_img_label.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            right_img_label = tk.Label(right_frame, image=photo2)
-            right_img_label.image = photo2  # Keep a reference
-            right_img_label.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            # Action buttons for each image
-            left_btn_frame = tk.Frame(left_frame)
-            left_btn_frame.pack(pady=10, fill="x")
-            
-            right_btn_frame = tk.Frame(right_frame)
-            right_btn_frame.pack(pady=10, fill="x")
-            
-            # Delete buttons
-            tk.Button(left_btn_frame, text="Keep This", bg="#4CAF50", fg="white", width=15,
-                   command=lambda: self._on_keep_image(compare_window, image2_path)).pack(side="left", padx=10)
-            
-            tk.Button(left_btn_frame, text="Delete This", bg="#f44336", fg="white", width=15, 
-                   command=lambda: self._on_delete_image(compare_window, image1_path)).pack(side="right", padx=10)
-            
-            tk.Button(right_btn_frame, text="Keep This", bg="#4CAF50", fg="white", width=15,
-                   command=lambda: self._on_keep_image(compare_window, image1_path)).pack(side="left", padx=10)
-            
-            tk.Button(right_btn_frame, text="Delete This", bg="#f44336", fg="white", width=15,
-                   command=lambda: self._on_delete_image(compare_window, image2_path)).pack(side="right", padx=10)
-            
-            # Button to close without action
-            tk.Button(compare_window, text="Close Without Action", width=20,
-                   command=compare_window.destroy).pack(pady=10)
-            
-        except Exception as e:
-            self.log(f"Error comparing images: {e}")
-            messagebox.showerror("Error", f"Could not compare images: {str(e)}")
-    
-    def _on_delete_image(self, window, image_path):
-        """Handle the deletion of an image from comparison view"""
-        try:
-            # Confirm deletion
-            if messagebox.askyesno("Confirm Deletion", 
-                               f"Are you sure you want to delete '{os.path.basename(image_path)}'?"):
-                os.remove(image_path)
-                self.log(f"Deleted duplicate image: {image_path}")
-                window.destroy()
-                messagebox.showinfo("Success", "Image deleted successfully.")
-        except Exception as e:
-            self.log(f"Error deleting image: {e}")
-            messagebox.showerror("Error", f"Could not delete the image: {str(e)}")
-    
-    def _on_keep_image(self, window, image_to_delete):
-        """Keep current image and delete the other one"""
-        try:
-            # Confirm deletion of the other image
-            if messagebox.askyesno("Confirm Action", 
-                               f"Keep this image and delete '{os.path.basename(image_to_delete)}'?"):
-                os.remove(image_to_delete)
-                self.log(f"Deleted duplicate image: {image_to_delete}")
-                window.destroy()
-                messagebox.showinfo("Success", "Changes applied successfully.")
-        except Exception as e:
-            self.log(f"Error during keep/delete operation: {e}")
-            messagebox.showerror("Error", f"Could not complete the operation: {str(e)}")
+
+        compare_window = Toplevel(self.root)
+        compare_window.title("Image Comparison")
+        compare_window.geometry("1400x900")  # Increased from 1200x800 to 1400x900
+        compare_window.transient(self.root)
+
+        # Create main frames
+        left_frame = tk.Frame(compare_window, bd=1, relief="groove")
+        left_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        right_frame = tk.Frame(compare_window, bd=1, relief="groove")
+        right_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+
+        def update_display():
+            try:
+                # Left image is always the first file (reference)
+                img1 = Image.open(group[0])
+                img1.thumbnail((600, 600), Image.LANCZOS)  # Increased from 550x550 to 600x600
+                photo1 = ImageTk.PhotoImage(img1)
+                left_img_label.config(image=photo1)
+                left_img_label.image = photo1
+                left_header.config(text=os.path.basename(group[0]))
+                left_size.config(text=f"Size: {self.format_size(os.path.getsize(group[0]))}")
+
+                # Right image is the current comparison file
+                img2 = Image.open(group[current_index])
+                img2.thumbnail((600, 600), Image.LANCZOS)  # Increased from 550x550 to 600x600
+                photo2 = ImageTk.PhotoImage(img2)
+                right_img_label.config(image=photo2)
+                right_img_label.image = photo2
+                right_header.config(text=os.path.basename(group[current_index]))
+                right_size.config(text=f"Size: {self.format_size(os.path.getsize(group[current_index]))}")
+
+                # Update navigation button states
+                prev_btn.config(state="normal" if current_index > 1 else "disabled")
+                next_btn.config(state="normal" if current_index < len(group) - 1 else "disabled")
+            except Exception as e:
+                self.log(f"Error updating comparison display: {e}")
+                messagebox.showerror("Error", f"Could not update images: {str(e)}")
+
+        # Image headers and labels
+        left_header = tk.Label(left_frame, font=("Arial", 10, "bold"))
+        left_header.pack(pady=(5, 2))
+        left_size = tk.Label(left_frame, font=("Arial", 9))
+        left_size.pack()
+        left_img_label = tk.Label(left_frame)
+        left_img_label.pack(fill="both", expand=True, padx=10, pady=10)
+
+        right_header = tk.Label(right_frame, font=("Arial", 10, "bold"))
+        right_header.pack(pady=(5, 2))
+        right_size = tk.Label(right_frame, font=("Arial", 9))
+        right_size.pack()
+        right_img_label = tk.Label(right_frame)
+        right_img_label.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Navigation buttons
+        nav_frame = tk.Frame(right_frame)
+        nav_frame.pack(pady=10)
+
+        def prev_image():
+            if current_index > 1:
+                current_index -= 1
+                update_display()
+
+        def next_image():
+            if current_index < len(group) - 1:
+                current_index += 1
+                update_display()
+
+        prev_btn = tk.Button(nav_frame, text="← Previous", command=prev_image)
+        prev_btn.pack(side="left", padx=5)
+        next_btn = tk.Button(nav_frame, text="Next →", command=next_image)
+        next_btn.pack(side="left", padx=5)
+
+        # Action buttons
+        def on_delete_right():
+            nonlocal current_index  # Move nonlocal declaration to start of function
+            try:
+                if messagebox.askyesno("Confirm Deletion",
+                                   f"Delete '{os.path.basename(group[current_index])}'?"):
+                    os.remove(group[current_index])
+                    self.log(f"Deleted: {group[current_index]}")
+                    group.pop(current_index)
+                    refresh_callback()
+                    if len(group) < 2:
+                        compare_window.destroy()
+                    else:
+                        if current_index >= len(group):
+                            current_index = len(group) - 1
+                        update_display()
+            except Exception as e:
+                self.log(f"Error deleting image: {e}")
+                messagebox.showerror("Error", f"Could not delete the image: {str(e)}")
+
+        action_frame = tk.Frame(compare_window)
+        action_frame.pack(pady=30)  # Increased padding from 20 to 30
+        tk.Button(action_frame, text="Delete Right Image", command=on_delete_right, 
+                  bg="#f44336", fg="white", width=25, height=2).pack(side="left", padx=30)  # Made button larger
+        tk.Button(action_frame, text="Close", command=compare_window.destroy, 
+                  width=20, height=2).pack(side="right", padx=30)  # Made button larger
+
+        # Initial display
+        update_display()
 
     def get_all_children(self, widget):
         """Recursively get all descendant widgets"""
