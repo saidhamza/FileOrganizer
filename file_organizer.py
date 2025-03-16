@@ -1524,8 +1524,11 @@ Troubleshooting:
     def show_duplicate_manager(self, duplicates):
         """Show a dialog to manage duplicate files with image thumbnails"""
         # Initialize thumbnail storage
-        self.duplicate_thumbnails = {}  # New line
-
+        self.duplicate_thumbnails = {}
+        
+        # Dictionary to track checkbox selections across groups
+        file_selections = {}
+        
         # Create the dialog
         dialog = Toplevel(self.root)
         dialog.title("Duplicate File Manager")
@@ -1589,15 +1592,23 @@ Troubleshooting:
                 file_frame = tk.Frame(content_frame, borderwidth=1, relief="groove")
                 file_frame.pack(fill="x", pady=5)
                 
-                # Create a variable for the checkbox - select newer files (but not the oldest)
-                var = tk.BooleanVar(value=(i < len(sorted_files)-1))  # Select all except the last (oldest) file
+                # Initialize selection state if not already set
+                if file_path not in file_selections:
+                    file_selections[file_path] = (i < len(sorted_files)-1)  # Select all except the oldest file
+                    
+                # Create a variable for the checkbox using the saved state
+                var = tk.BooleanVar(value=file_selections[file_path])
+                
+                # Track checkbox changes
+                def on_checkbox_change(file_path=file_path):
+                    file_selections[file_path] = var.get()
                 
                 # Top row with checkbox and file info
                 top_row = tk.Frame(file_frame)
                 top_row.pack(fill="x", padx=5, pady=5)
                 
-                # Checkbox
-                check = tk.Checkbutton(top_row, variable=var)
+                # Checkbox with change tracking
+                check = tk.Checkbutton(top_row, variable=var, command=on_checkbox_change)
                 check.pack(side="left")
                 
                 # Store the variable in the checkbutton for later reference
@@ -1709,20 +1720,55 @@ Troubleshooting:
         
         # New function: Delete all selected from all groups (keeps the oldest file in each group)
         def delete_all_selected_global():
+            # Get list of files that are actually selected
+            selected_files = [file_path for file_path, is_selected in file_selections.items() 
+                              if is_selected and os.path.exists(file_path)]
+            
+            if not selected_files:
+                messagebox.showinfo("No Selection", "No files are selected for deletion.")
+                return
+                
+            # Confirm deletion
+            confirm = messagebox.askyesno("Confirm Deletion", 
+                                       f"Are you sure you want to delete {len(selected_files)} selected files?")
+            if not confirm:
+                return
+                
+            # Delete the selected files
             total_deleted = 0
-            for grp in duplicate_groups[:]:
-                # Sort files so the oldest (to keep) is last
-                sorted_files = sorted(grp, key=lambda f: self.get_file_creation_date(f))
-                for file in sorted_files[:-1]:
-                    try:
-                        os.remove(file)
-                        total_deleted += 1
-                        self.log(f"Deleted duplicate: {file}")
-                    except Exception as e:
-                        self.log(f"Error deleting {file}: {e}")
-                duplicate_groups.remove(grp)
-            messagebox.showinfo("Deletion Complete", f"Deleted a total of {total_deleted} duplicate files.")
-            dialog.destroy()
+            for file_path in selected_files:
+                try:
+                    os.remove(file_path)
+                    total_deleted += 1
+                    self.log(f"Deleted duplicate: {file_path}")
+                    # Remove from selections dictionary
+                    if file_path in file_selections:
+                        del file_selections[file_path]
+                except Exception as e:
+                    self.log(f"Error deleting {file_path}: {e}")
+                    
+            # Update groups to remove deleted files
+            for i in range(len(duplicate_groups)):
+                duplicate_groups[i] = [f for f in duplicate_groups[i] if os.path.exists(f)]
+            
+            # Remove empty groups
+            duplicate_groups[:] = [g for g in duplicate_groups if len(g) > 1]
+            
+            # Show completion message
+            messagebox.showinfo("Deletion Complete", f"Deleted a total of {total_deleted} files.")
+            
+            # If no more duplicates, close dialog
+            if not duplicate_groups:
+                messagebox.showinfo("No More Duplicates", "All duplicate files have been resolved.")
+                dialog.destroy()
+                return
+                
+            # Adjust current index if needed
+            if current_group_idx[0] >= len(duplicate_groups):
+                current_group_idx[0] = len(duplicate_groups) - 1
+                
+            # Update display
+            update_duplicate_display()
         
         # Function to compare two images side by side
         def compare_selected():
