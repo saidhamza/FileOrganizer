@@ -1978,17 +1978,23 @@ Troubleshooting:
                 try:
                     exif_dict = {}
                     exif_data = image._getexif()
-                    if not exif_data:
+                    
+                    # More robust check for exif_data - must be None check AND type check
+                    if exif_data is None or not hasattr(exif_data, 'items'):
                         return None
                         
-                    # Find GPS info tag
+                    # Find GPS info tag - with additional try/except for safety
                     gps_info = None
-                    for tag, value in exif_data.items():
-                        tag_name = TAGS.get(tag, str(tag))
-                        exif_dict[tag_name] = value
-                        if tag_name == 'GPSInfo':
-                            gps_info = value
-                            break
+                    try:
+                        for tag, value in exif_data.items():
+                            tag_name = TAGS.get(tag, str(tag))
+                            exif_dict[tag_name] = value
+                            if tag_name == 'GPSInfo':
+                                gps_info = value
+                                break
+                    except Exception as e:
+                        self.log(f"Error iterating EXIF data: {str(e)}")
+                        return None
                     
                     # We no longer need the full EXIF data
                     exif_dict.clear()
@@ -1999,9 +2005,13 @@ Troubleshooting:
                     
                     # Process GPS data without keeping references to PIL objects
                     gps_data = {}
-                    for tag_id, value in gps_info.items():
-                        tag_name = GPSTAGS.get(tag_id, str(tag_id))
-                        gps_data[tag_name] = value
+                    try:
+                        for tag_id, value in gps_info.items():
+                            tag_name = GPSTAGS.get(tag_id, str(tag_id))
+                            gps_data[tag_name] = value
+                    except Exception as e:
+                        self.log(f"Error processing GPS tags: {str(e)}")
+                        return None
                     
                     # Extract coordinates safely
                     if 'GPSLatitude' not in gps_data or 'GPSLongitude' not in gps_data:
@@ -2039,7 +2049,7 @@ Troubleshooting:
         except Exception as e:
             self.log(f"Image loading error: {str(e)}")
             return None
-    
+
     def _convert_gps_coords(self, coords):
         """Convert GPS coordinates safely with local variables"""
         if not coords or not hasattr(coords, '__len__') or len(coords) != 3:
